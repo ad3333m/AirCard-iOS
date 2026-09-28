@@ -4,8 +4,21 @@
 # Run any time rust-core/ changes, then regenerate with `xcodegen generate`.
 set -euo pipefail
 
-export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode-beta.app/Contents/Developer}"
+if [ -n "${DEVELOPER_DIR:-}" ]; then
+  :
+else
+  DEVELOPER_DIR="$(xcode-select -p 2>/dev/null || true)"
+  if [ -z "$DEVELOPER_DIR" ] || [ ! -d "$DEVELOPER_DIR" ]; then
+    DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer"
+  fi
+fi
+export DEVELOPER_DIR
 export IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-18.0}"
+
+if [ ! -d "$DEVELOPER_DIR" ]; then
+  echo "Error: Xcode not found. Set DEVELOPER_DIR or install Xcode." >&2
+  exit 1
+fi
 
 # Make ~/.cargo visible to non-login shells (Xcode build phases, CI)
 # shellcheck disable=SC1090

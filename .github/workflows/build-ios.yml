@@ -27,6 +27,14 @@ jobs:
           brew update
           brew install xcodegen
 
+      - name: Select active Xcode
+        shell: bash
+        run: |
+          xcode-select -p
+          xcodebuild -version
+          export DEVELOPER_DIR="$(xcode-select -p)"
+          echo "DEVELOPER_DIR=$DEVELOPER_DIR" >> "$GITHUB_ENV"
+
       - name: Generate Xcode project
         shell: bash
         run: xcodegen generate
