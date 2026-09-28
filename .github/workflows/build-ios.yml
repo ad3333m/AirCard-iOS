@@ -1,0 +1,50 @@
+name: Build AirCard-iOS
+
+on:
+  push:
+    branches: ["main", "restore-stock-passcode"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: macOS build
+    runs-on: macos-15
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim
+
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          brew update
+          brew install xcodegen
+
+      - name: Generate Xcode project
+        shell: bash
+        run: xcodegen generate
+
+      - name: Build Rust FFI framework
+        shell: bash
+        run: |
+          source "$HOME/.cargo/env"
+          ./build-ios.sh
+
+      - name: Build IPA
+        shell: bash
+        run: |
+          ./build-ipa.sh
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AirCard-iOS.ipa
+          path: build/AirCard-iOS.ipa
+          if-no-files-found: error

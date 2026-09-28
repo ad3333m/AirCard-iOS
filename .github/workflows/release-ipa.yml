@@ -1,0 +1,54 @@
+name: Release AirCard-iOS IPA
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  release:
+    name: Build and publish IPA
+    runs-on: macos-15
+    timeout-minutes: 90
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim
+
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          brew update
+          brew install xcodegen
+
+      - name: Generate Xcode project
+        shell: bash
+        run: xcodegen generate
+
+      - name: Build Rust FFI framework
+        shell: bash
+        run: |
+          source "$HOME/.cargo/env"
+          ./build-ios.sh
+
+      - name: Build IPA
+        shell: bash
+        run: |
+          ./build-ipa.sh
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/AirCard-iOS.ipa
+          generate_release_notes: true
+          draft: false
+          prerelease: false
