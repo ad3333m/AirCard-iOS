@@ -1400,6 +1400,9 @@ struct ApplyThemeSection: View {
         Section("Browse Files") {
             HStack {
                 Button {
+                    // Immediate marker: if you tap this and NO log line appears,
+                    // you're not running this build.
+                    vm.passthmFlashLog = ["📂 Opening file picker… (build 4)"]
                     showDocumentPicker = true
                 } label: {
                     Label(vm.loadedTheme == nil ? "Choose .passthm from Files…" : "Change .passthm…",
@@ -1418,13 +1421,30 @@ struct ApplyThemeSection: View {
                     .buttonStyle(.borderless)
                 }
             }
-            .sheet(isPresented: $showDocumentPicker) {
-                DocumentPickerView(allowedContentTypes: [
-                    UTType(filenameExtension: "passthm") ?? .archive,
-                    UTType.zip,
-                    UTType.archive
-                ]) { url in
-                    vm.loadPassthm(url: url)
+            // Native SwiftUI importer — reads the bytes synchronously while the
+            // security scope is valid, avoiding the old picker's scope/async race.
+            // `.data` is included so a .passthm is never greyed-out/unselectable.
+            .fileImporter(
+                isPresented: $showDocumentPicker,
+                allowedContentTypes: [
+                    UTType(filenameExtension: "passthm") ?? .data,
+                    .zip, .archive, .data
+                ],
+                allowsMultipleSelection: false
+            ) { result in
+                switch result {
+                case .success(let urls):
+                    guard let url = urls.first else {
+                        vm.passthmFlashLog.append("• Picker returned no file.")
+                        return
+                    }
+                    let scoped = url.startAccessingSecurityScopedResource()
+                    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                    let data = (try? Data(contentsOf: url)) ?? Data()
+                    vm.loadPassthmData(data, name: url.lastPathComponent)
+                case .failure(let err):
+                    vm.passthmFlashLog.append("❌ File import failed: \(err.localizedDescription)")
+                    vm.errorMessage = "File import failed: \(err.localizedDescription)"
                 }
             }
         }

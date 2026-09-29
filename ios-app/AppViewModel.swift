@@ -820,7 +820,7 @@ final class AppViewModel: ObservableObject {
     // MARK: - Passthm Load
 
     func loadPassthm(url: URL) {
-        passthmFlashLog = ["🔍 Loading \(url.lastPathComponent)…"]
+        passthmFlashLog.append("🔍 Loading \(url.lastPathComponent)…")
         Task.detached {
             let diag = PasscodeThemeReader.inspectDiagnostic(url: url)
             await MainActor.run {
@@ -843,9 +843,40 @@ final class AppViewModel: ObservableObject {
     }
 
     func loadPassthmFromDocuments(filename: String) {
+        passthmFlashLog = ["📁 Loading \(filename) from app folder…"]
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let url = docs.appendingPathComponent(filename)
         loadPassthm(url: url)
+    }
+
+    /// Loads a theme from bytes already read from the picker (while its security
+    /// scope was valid). Saves a copy into Documents, then loads/previews it.
+    func loadPassthmData(_ data: Data, name: String) {
+        guard !data.isEmpty else {
+            passthmFlashLog = ["❌ Read 0 bytes from the selected file."]
+            errorMessage = "The selected file was empty or unreadable."
+            return
+        }
+        passthmFlashLog = ["📥 Picked \(name) — \(data.count) bytes."]
+
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        var fname = name
+        if fname.isEmpty || !fname.lowercased().hasSuffix(".passthm") {
+            fname = "Imported_\(Int(Date().timeIntervalSince1970)).passthm"
+        }
+        let dest = docs.appendingPathComponent(fname)
+        do {
+            if FileManager.default.fileExists(atPath: dest.path) {
+                try FileManager.default.removeItem(at: dest)
+            }
+            try data.write(to: dest, options: .atomic)
+        } catch {
+            passthmFlashLog.append("❌ Could not save theme: \(error.localizedDescription)")
+            errorMessage = "Couldn't save the theme file."
+            return
+        }
+        scanDocumentsDirectory()
+        loadPassthm(url: dest)
     }
 
     // MARK: - External file open (onOpenURL)
