@@ -749,20 +749,27 @@ enum MiniZip {
     /// Inflate a raw DEFLATE stream (as stored in a zip entry) to `expected` bytes.
     private static func inflate(_ input: [UInt8], expected: Int) -> [UInt8]? {
         guard !input.isEmpty else { return expected == 0 ? [] : nil }
-        let capacity = max(expected, 1)
-        var dst = [UInt8](repeating: 0, count: capacity)
-        let written = input.withUnsafeBufferPointer { src -> Int in
-            dst.withUnsafeMutableBufferPointer { dstPtr in
-                compression_decode_buffer(
-                    dstPtr.baseAddress!, capacity,
-                    src.baseAddress!, input.count,
-                    nil, COMPRESSION_ZLIB
-                )
+        // compression_decode_buffer returns 0 both on error and when the output
+        // buffer is too small, so try progressively larger buffers (with slack
+        // over the declared uncompressed size) before giving up.
+        let candidates = [max(expected, 1) + 16, max(expected * 2, 65_536), max(expected * 4, 262_144)]
+        for capacity in candidates {
+            var dst = [UInt8](repeating: 0, count: capacity)
+            let written = input.withUnsafeBufferPointer { src -> Int in
+                dst.withUnsafeMutableBufferPointer { dstPtr in
+                    compression_decode_buffer(
+                        dstPtr.baseAddress!, capacity,
+                        src.baseAddress!, input.count,
+                        nil, COMPRESSION_ZLIB
+                    )
+                }
+            }
+            if written > 0 {
+                if written < capacity { dst.removeLast(capacity - written) }
+                return dst
             }
         }
-        guard written > 0 else { return nil }
-        if written < capacity { dst.removeLast(capacity - written) }
-        return dst
+        return nil
     }
 }
 
@@ -771,13 +778,33 @@ enum PasscodeThemeReader {
     /// Extract key-button images from a .passthm zip file.
     /// Returns a dict [digit → UIImage], raw data dict [digit → Data], and the total file count.
     static func inspect(url: URL) -> (keys: [String: UIImage], rawData: [String: Data], fileCount: Int)? {
-        guard let data = try? Data(contentsOf: url) else { return nil }
+        inspectDiagnostic(url: url).result
+    }
+
+    /// Same as `inspect`, but also returns human-readable diagnostics so the
+    /// on-screen load log can show exactly where reading a theme fails instead
+    /// of failing silently.
+    static func inspectDiagnostic(url: URL)
+        -> (result: (keys: [String: UIImage], rawData: [String: Data], fileCount: Int)?, log: [String]) {
+        var log: [String] = []
+
+        guard let data = try? Data(contentsOf: url) else {
+            log.append("• Could not read file bytes (permission / security scope?)")
+            return (nil, log)
+        }
+        log.append("• Read \(data.count) bytes")
+
         let entries = MiniZip.entries(in: data)
-        guard !entries.isEmpty else { return nil }
+        log.append("• Zip entries found: \(entries.count)")
+        guard !entries.isEmpty else {
+            log.append("• Not a readable zip (0 entries) — unsupported archive layout")
+            return (nil, log)
+        }
 
         var keys: [String: UIImage] = [:]
         var rawData: [String: Data] = [:]
         var fileCount = 0
+        var decodeFailures = 0
 
         for (path, fileData) in entries {
             guard !path.hasPrefix("."), !path.contains("__MACOSX") else { continue }
@@ -790,11 +817,19 @@ enum PasscodeThemeReader {
                 rawData[digit] = fileData
                 if let img = ImageEngine.safeImageFromData(fileData, maxDimension: 512) {
                     keys[digit] = img
+                } else {
+                    decodeFailures += 1
                 }
             }
         }
 
-        return keys.isEmpty ? nil : (keys, rawData, fileCount)
+        log.append("• Image files: \(fileCount) · decoded keys: \(keys.count)"
+                   + (decodeFailures > 0 ? " · \(decodeFailures) image(s) failed to decode" : ""))
+        guard !keys.isEmpty else {
+            log.append("• No usable key images (filenames may not match the <digit> pattern)")
+            return (nil, log)
+        }
+        return ((keys, rawData, fileCount), log)
     }
 
     /// Extract digit matching AirCard's regex logic for themes

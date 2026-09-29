@@ -1688,7 +1688,7 @@ struct PasscodeTargetSection: View {
         } message: {
             Text(
                 """
-                AirCard will move only the custom keypad files matching the currently loaded theme.
+                AirCard will move the custom keypad files — matching the loaded theme, or all 0–9 keys if none is loaded — out of TelephonyUI.
 
                 They will be backed up under /var/mobile/Media before you respring.
                 """

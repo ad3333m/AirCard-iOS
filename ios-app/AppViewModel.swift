@@ -820,10 +820,12 @@ final class AppViewModel: ObservableObject {
     // MARK: - Passthm Load
 
     func loadPassthm(url: URL) {
+        passthmFlashLog = ["🔍 Loading \(url.lastPathComponent)…"]
         Task.detached {
-            let result = PasscodeThemeReader.inspect(url: url)
+            let diag = PasscodeThemeReader.inspectDiagnostic(url: url)
             await MainActor.run {
-                if let (keys, rawData, count) = result {
+                self.passthmFlashLog.append(contentsOf: diag.log)
+                if let (keys, rawData, count) = diag.result {
                     self.loadedTheme = PasscodeThemeInfo(
                         name: url.deletingPathExtension().lastPathComponent,
                         filePath: url.path,
@@ -831,8 +833,10 @@ final class AppViewModel: ObservableObject {
                         keysPreview: keys,
                         rawKeyData: rawData
                     )
+                    self.passthmFlashLog.append("✅ Theme loaded — \(keys.count) keys, preview ready.")
                 } else {
-                    self.errorMessage = "Failed to read .passthm — invalid or unsupported format."
+                    self.errorMessage = "Failed to read .passthm — see the load log below."
+                    self.passthmFlashLog.append("❌ Load failed.")
                 }
             }
         }
@@ -926,39 +930,34 @@ final class AppViewModel: ObservableObject {
 
 
     var canRestorePassthm: Bool {
-        guard hasPairingFile,
-              passthmFlashPhase != .running,
-              passthmRestorePhase != .running else {
-            return false
-        }
-
-        switch passcodeMode {
-        case .applyTheme:
-            return loadedTheme != nil &&
-                   !(loadedTheme?.keysPreview.isEmpty ?? true)
-        case .themeCreator:
-            return !effectiveKeys.isEmpty
-        }
+        // Stock restore only needs pairing (it targets the standard 0–9 keypad
+        // assets), so it is always available and no longer requires a theme to
+        // be loaded first.
+        hasPairingFile &&
+        passthmFlashPhase != .running &&
+        passthmRestorePhase != .running
     }
 
     func restoreStockPasscode() {
         guard canRestorePassthm else {
-            errorMessage = "Load the same .passthm theme first."
+            errorMessage = "A pairing file is required before restoring."
             return
         }
 
+        // When a theme is loaded, restore exactly its digits; otherwise fall back
+        // to a full stock restore of all keypad digits (0–9).
+        let allDigits = (0...9).map(String.init)
         let digits: [String]
 
         switch passcodeMode {
         case .applyTheme:
-            guard let theme = loadedTheme else {
-                errorMessage = "Load the same .passthm theme first."
-                return
+            if let theme = loadedTheme, !theme.keysPreview.isEmpty {
+                digits = Array(theme.keysPreview.keys)
+            } else {
+                digits = allDigits
             }
-            digits = Array(theme.keysPreview.keys)
-
         case .themeCreator:
-            digits = Array(effectiveKeys.keys)
+            digits = effectiveKeys.isEmpty ? allDigits : Array(effectiveKeys.keys)
         }
 
         guard !digits.isEmpty else {
