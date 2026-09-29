@@ -480,6 +480,16 @@ final class AppViewModel: ObservableObject {
         return cardsDir.appendingPathComponent("card_\(safeId).png")
     }
 
+    nonisolated static func cardOriginalImagePath(for cardId: String) -> URL {
+        let safeId = cardId.replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "+", with: "-")
+        let docDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let cardsDir = docDir.appendingPathComponent("WalletCards", isDirectory: true)
+        if !FileManager.default.fileExists(atPath: cardsDir.path) {
+            try? FileManager.default.createDirectory(at: cardsDir, withIntermediateDirectories: true)
+        }
+        return cardsDir.appendingPathComponent("original_\(safeId).png")
+    }
+
     func loadSavedCards() {
         var foundHashes: [String] = []
         for key in storageKeys {
@@ -499,7 +509,14 @@ final class AppViewModel: ObservableObject {
             let data = try? Data(contentsOf: path)
             // Downsampled thumbnail keeps RAM minimal, preventing Jetsam OOM kills
             let img = data.flatMap { ImageEngine.safeImageFromData($0, maxDimension: 512) }
-            return CardItem(id: id, customImageData: data, customImage: img)
+            let origPath = Self.cardOriginalImagePath(for: id)
+            let origData = try? Data(contentsOf: origPath)
+            let origImg = origData.flatMap { ImageEngine.safeImageFromData($0, maxDimension: 512) }
+            return CardItem(id: id,
+                            customImageData: data,
+                            customImage: img,
+                            originalImageData: origData,
+                            originalImage: origImg)
         }
     }
 
@@ -507,9 +524,40 @@ final class AppViewModel: ObservableObject {
         for card in cards {
             let path = Self.cardImagePath(for: card.id)
             try? FileManager.default.removeItem(at: path)
+            let origPath = Self.cardOriginalImagePath(for: card.id)
+            try? FileManager.default.removeItem(at: origPath)
         }
         cards.removeAll()
         saveCards()
+    }
+
+    func setCardOriginalImage(for cardId: String, image: UIImage) {
+        guard let idx = cards.firstIndex(where: { $0.id == cardId }) else { return }
+        let thumb = ImageEngine.normalizeAndDownsample(image, maxDimension: 512)
+        cards[idx].originalImage = thumb
+
+        let actualId = cards[idx].id
+        let path = Self.cardOriginalImagePath(for: actualId)
+        Task.detached(priority: .userInitiated) {
+            let data = ImageEngine.prepareCardImage(from: image)
+            if let data = data {
+                try? data.write(to: path)
+            }
+            await MainActor.run {
+                if let i = AppViewModel.shared?.cards.firstIndex(where: { $0.id == actualId }) {
+                    AppViewModel.shared?.cards[i].originalImageData = data
+                }
+            }
+        }
+    }
+
+    func clearCardOriginalImage(for cardId: String) {
+        if let idx = cards.firstIndex(where: { $0.id == cardId }) {
+            cards[idx].originalImage = nil
+            cards[idx].originalImageData = nil
+        }
+        let path = Self.cardOriginalImagePath(for: cardId)
+        try? FileManager.default.removeItem(at: path)
     }
 
     func saveCards() {
@@ -685,18 +733,53 @@ final class AppViewModel: ObservableObject {
             for (i, card) in targets.enumerated() {
                 let cleanId = CardItem.cleanCardId(card.id) ?? card.id
                 let safeCardId = cleanId.replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "+", with: "-")
+
+                // Prefer the user-saved original artwork if available: load
+                // full-res from disk, otherwise fall back to the transparent
+                // stubs.
+                let originalPath = Self.cardOriginalImagePath(for: card.id)
+                let originalSourceImg: UIImage? = {
+                    if let d = try? Data(contentsOf: originalPath) { return UIImage(data: d) }
+                    return card.originalImage
+                }()
+
+                let useOriginal = (originalSourceImg != nil)
+
                 await MainActor.run {
-                    self.cardFlashLog.append("[\(i+1)/\(targets.count)] Restoring \(cleanId.prefix(12))…")
+                    if useOriginal {
+                        self.cardFlashLog.append("[\(i+1)/\(targets.count)] Restoring \(cleanId.prefix(12)) → saved original…")
+                    } else {
+                        self.cardFlashLog.append("[\(i+1)/\(targets.count)] Restoring \(cleanId.prefix(12)) → stock stub (no saved original)…")
+                    }
                     self.cardFlashProgress = Double(i) / total
                     self.clearCardImage(for: card.id)
                 }
 
-                // 1. Stage the 11 transparent stub files.
+                // 1. Stage the files to write. When a saved original exists,
+                // generate the full multi-res card skins from it so we write
+                // Apple's exact original artwork back into the pkpass. Otherwise
+                // stage the transparent stubs.
                 let stageDir = FileManager.default.temporaryDirectory
                     .appendingPathComponent("airlift_restore_\(safeCardId)_\(UUID().uuidString)")
                 try? FileManager.default.createDirectory(at: stageDir, withIntermediateDirectories: true)
-                for (name, data) in stubFiles {
-                    try? data.write(to: stageDir.appendingPathComponent(name))
+                if let src = originalSourceImg {
+                    let skins = ImageEngine.prepareAllCardSkins(from: src)
+                    if skins.isEmpty {
+                        await MainActor.run {
+                            self.cardFlashLog.append("  ⚠️ Could not generate skins from saved original — falling back to stubs.")
+                        }
+                        for (name, data) in stubFiles {
+                            try? data.write(to: stageDir.appendingPathComponent(name))
+                        }
+                    } else {
+                        for (name, data) in skins {
+                            try? data.write(to: stageDir.appendingPathComponent(name))
+                        }
+                    }
+                } else {
+                    for (name, data) in stubFiles {
+                        try? data.write(to: stageDir.appendingPathComponent(name))
+                    }
                 }
 
                 // 2. Overwrite the pkpass folder contents with the stubs.
@@ -774,8 +857,14 @@ final class AppViewModel: ObservableObject {
                 self.cardFlashPhase = .done(ok: successCount > 0)
                 self.cardFlashProgress = 1.0
                 if successCount > 0 {
-                    self.cardFlashLog.append("🎉 Restored \(successCount)/\(targets.count) card(s). Force-close Wallet to see the stock look; if you need the exact original Apple artwork, remove & re-add the card in Wallet.")
-                    self.successAlertMessage = "Stock restore applied to \(successCount) card(s)!\n\nForce-close the Wallet app on your iPhone to see the change. If you need the exact original Apple artwork (not just the plain stock rendering), remove and re-add the card in Wallet."
+                    let anyOriginals = targets.contains { $0.originalUIImage != nil }
+                    if anyOriginals {
+                        self.cardFlashLog.append("🎉 Restored \(successCount)/\(targets.count) card(s). Cards with a saved original are back to that artwork; the rest fell back to the plain stock look. Force-close Wallet to see the change.")
+                        self.successAlertMessage = "Restore applied to \(successCount) card(s)!\n\nCards with a saved 'Original Image' are back to that artwork. Any card without a saved original shows the plain stock look — set an Original Image on those cards, then run Restore again.\n\nForce-close the Wallet app to see the change."
+                    } else {
+                        self.cardFlashLog.append("🎉 Restored \(successCount)/\(targets.count) card(s) to the plain stock look. Set an 'Original Image' per card to get your actual artwork back on the next Restore.")
+                        self.successAlertMessage = "Stock restore applied to \(successCount) card(s)!\n\nTo get your actual original card artwork back on future restores, set an 'Original Image' per card (long-press the card row) with a screenshot of the original artwork."
+                    }
                     self.showSuccessAlert = true
                 } else {
                     self.cardFlashLog.append("❌ Restore did not reach any cards. Check pairing / VPN.")

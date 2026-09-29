@@ -372,7 +372,7 @@ struct ContentView: View {
         }
         // Diagnostic build badge — if you don't see this, you're on the OLD app.
         .overlay(alignment: .topTrailing) {
-            Text("build 8")
+            Text("build 9")
                 .font(.system(size: 9, weight: .bold, design: .monospaced))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 6)
@@ -733,6 +733,8 @@ struct WalletCardView: View {
     let onPickImage: () -> Void
     let onClearImage: () -> Void
     let onDelete: () -> Void
+    let onPickOriginal: () -> Void
+    let onClearOriginal: () -> Void
 
     @State private var copied = false
 
@@ -873,6 +875,35 @@ struct WalletCardView: View {
                         .font(.system(size: 14))
                 }
 
+                Menu {
+                    if card.originalUIImage == nil {
+                        Button {
+                            onPickOriginal()
+                        } label: {
+                            Label("Set Original for Restore…", systemImage: "photo.badge.arrow.down")
+                        }
+                        Text("Save a copy of your card's original artwork so Restore can bring it back later.")
+                    } else {
+                        Button {
+                            onPickOriginal()
+                        } label: {
+                            Label("Change Original Image…", systemImage: "photo")
+                        }
+                        Button(role: .destructive) {
+                            onClearOriginal()
+                        } label: {
+                            Label("Clear Original", systemImage: "xmark.circle")
+                        }
+                    }
+                } label: {
+                    Image(systemName: card.originalUIImage != nil ? "bookmark.fill" : "bookmark")
+                        .font(.system(size: 14))
+                        .foregroundStyle(card.originalUIImage != nil ? .blue : .secondary)
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
                 Button(role: .destructive, action: onDelete) {
                     Image(systemName: "trash")
                         .font(.system(size: 14))
@@ -904,10 +935,12 @@ struct WalletCardsTab: View {
     @State private var showAddSheet = false
     enum ActiveCardPicker: Identifiable {
         case singleCard(String)
+        case originalCard(String)     // Picks the "Original / backup" image
         case bulkAll
         var id: String {
             switch self {
-            case .singleCard(let id): return id
+            case .singleCard(let id): return "custom_" + id
+            case .originalCard(let id): return "original_" + id
             case .bulkAll: return "bulk_all"
             }
         }
@@ -919,6 +952,8 @@ struct WalletCardsTab: View {
     @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var showCredits = false
     @State private var showRestoreCardsConfirm = false
+    @State private var showRestoreOriginalGate = false
+    @State private var showRestoreDeniedAlert = false
 
     var body: some View {
         NavigationStack {
@@ -987,15 +1022,6 @@ struct WalletCardsTab: View {
 
                             Divider()
 
-                            Button {
-                                showRestoreCardsConfirm = true
-                            } label: {
-                                Label("Restore Stock Card Skins", systemImage: "arrow.uturn.backward.circle")
-                            }
-                            .disabled(!vm.canRestoreCardSkins)
-
-                            Divider()
-
                             Button(role: .destructive) {
                                 withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
                                     vm.clearAllCards()
@@ -1048,7 +1074,22 @@ struct WalletCardsTab: View {
                 }
             }
             .confirmationDialog(
-                "Restore stock card skins?",
+                "Is your picture on your card the original?",
+                isPresented: $showRestoreOriginalGate,
+                titleVisibility: .visible
+            ) {
+                Button("Yes — proceed") {
+                    showRestoreCardsConfirm = true
+                }
+                Button("No", role: .destructive) {
+                    showRestoreDeniedAlert = true
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Restore writes each selected card's saved 'Original Image' back into Wallet. Only continue if the image you have IS your card's original artwork. If it's a modified/custom skin, you should not flash it as a restore.")
+            }
+            .confirmationDialog(
+                "Restore now?",
                 isPresented: $showRestoreCardsConfirm,
                 titleVisibility: .visible
             ) {
@@ -1059,11 +1100,16 @@ struct WalletCardsTab: View {
             } message: {
                 Text(
                     """
-                    AirTweak will clear the custom skin on each SELECTED card and invalidate its Wallet cache so iOS refreshes the preview.
+                    AirTweak will flash the saved Original Image on each SELECTED card. Cards without a saved Original fall back to a plain stock rendering.
 
-                    If Wallet still shows the custom art afterwards, remove the card and re-add it in Wallet to get the original Apple design back.
+                    Force-close Wallet afterwards to see the change.
                     """
                 )
+            }
+            .alert("Access to flash picture denied", isPresented: $showRestoreDeniedAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("Restore is only allowed when the image is genuinely your card's original artwork. Set the correct Original Image per card (bookmark icon on the card row), then try Restore again.")
             }
             .photosPicker(
                 isPresented: $isPhotosPickerPresented,
@@ -1083,6 +1129,8 @@ struct WalletCardsTab: View {
                             switch currentPicker {
                             case .singleCard(let cardId):
                                 vm.setCardImage(for: cardId, image: image)
+                            case .originalCard(let cardId):
+                                vm.setCardOriginalImage(for: cardId, image: image)
                             case .bulkAll:
                                 vm.setSkinForAllCards(image: image)
                             }
@@ -1106,6 +1154,8 @@ struct WalletCardsTab: View {
                         switch picker {
                         case .singleCard(let cardId):
                             vm.setCardImage(for: cardId, image: image)
+                        case .originalCard(let cardId):
+                            vm.setCardOriginalImage(for: cardId, image: image)
                         case .bulkAll:
                             vm.setSkinForAllCards(image: image)
                         }
@@ -1175,6 +1225,13 @@ struct WalletCardsTab: View {
                     onDelete: {
                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                         vm.deleteCard(id: card.id)
+                    },
+                    onPickOriginal: {
+                        activePicker = .originalCard(card.id)
+                        showSourceDialog = true
+                    },
+                    onClearOriginal: {
+                        vm.clearCardOriginalImage(for: card.id)
                     }
                 )
                 .id(card.id)
@@ -1182,6 +1239,23 @@ struct WalletCardsTab: View {
                     insertion: .scale(scale: 0.95).combined(with: .opacity),
                     removal: .scale(scale: 0.85).combined(with: .opacity)
                 ))
+            }
+
+            if !vm.cards.isEmpty {
+                Button {
+                    showRestoreOriginalGate = true
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.uturn.backward.circle")
+                        Text("Restore Stock Card Picture")
+                            .font(.system(size: 15, weight: .semibold))
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.bordered)
+                .tint(.orange)
+                .disabled(!vm.canRestoreCardSkins)
+                .padding(.top, 4)
             }
 
             if !vm.cardFlashLog.isEmpty {

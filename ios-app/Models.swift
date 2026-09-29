@@ -12,8 +12,18 @@ struct CardItem: Identifiable, Equatable {
     var customImageData: Data? = nil  // Primary PNG data (1536x969)
     var customImage: UIImage? = nil   // Fast cached UIImage for display
 
+    // "Original" artwork the user has saved for this card (e.g. a screenshot
+    // of the card taken before flashing a custom skin). If set, Restore Stock
+    // Card Skins flashes THIS back instead of writing blank stubs.
+    var originalImageData: Data? = nil
+    var originalImage: UIImage? = nil
+
     var uiImage: UIImage? {
         customImage ?? (customImageData.flatMap { UIImage(data: $0) })
+    }
+
+    var originalUIImage: UIImage? {
+        originalImage ?? (originalImageData.flatMap { UIImage(data: $0) })
     }
 
     /// Normalizes and cleans a card identifier, stripping paths, extensions (.pkpass, .cache),
@@ -43,7 +53,9 @@ struct CardItem: Identifiable, Equatable {
         lhs.id == rhs.id &&
         lhs.isSelected == rhs.isSelected &&
         lhs.customImage === rhs.customImage &&
-        (lhs.customImageData?.count == rhs.customImageData?.count)
+        (lhs.customImageData?.count == rhs.customImageData?.count) &&
+        lhs.originalImage === rhs.originalImage &&
+        (lhs.originalImageData?.count == rhs.originalImageData?.count)
     }
 }
 
