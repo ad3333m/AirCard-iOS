@@ -1402,7 +1402,7 @@ struct ApplyThemeSection: View {
                 Button {
                     // Immediate marker: if you tap this and NO log line appears,
                     // you're not running this build.
-                    vm.passthmFlashLog = ["📂 Opening file picker… (build 4)"]
+                    vm.passthmFlashLog = ["📂 Opening file picker… (build 5)"]
                     showDocumentPicker = true
                 } label: {
                     Label(vm.loadedTheme == nil ? "Choose .passthm from Files…" : "Change .passthm…",
@@ -1421,30 +1421,19 @@ struct ApplyThemeSection: View {
                     .buttonStyle(.borderless)
                 }
             }
-            // Native SwiftUI importer — reads the bytes synchronously while the
-            // security scope is valid, avoiding the old picker's scope/async race.
-            // `.data` is included so a .passthm is never greyed-out/unselectable.
-            .fileImporter(
-                isPresented: $showDocumentPicker,
-                allowedContentTypes: [
-                    UTType(filenameExtension: "passthm") ?? .data,
-                    .zip, .archive, .data
-                ],
-                allowsMultipleSelection: false
-            ) { result in
-                switch result {
-                case .success(let urls):
-                    guard let url = urls.first else {
-                        vm.passthmFlashLog.append("• Picker returned no file.")
-                        return
-                    }
+            // Same document picker that always allowed selection; the only fix is
+            // reading the bytes synchronously in the callback (while the copy is
+            // valid) instead of on a detached task after scope was released.
+            .sheet(isPresented: $showDocumentPicker) {
+                DocumentPickerView(allowedContentTypes: [
+                    UTType(filenameExtension: "passthm") ?? .archive,
+                    UTType.zip,
+                    UTType.archive
+                ]) { url in
                     let scoped = url.startAccessingSecurityScopedResource()
                     defer { if scoped { url.stopAccessingSecurityScopedResource() } }
                     let data = (try? Data(contentsOf: url)) ?? Data()
                     vm.loadPassthmData(data, name: url.lastPathComponent)
-                case .failure(let err):
-                    vm.passthmFlashLog.append("❌ File import failed: \(err.localizedDescription)")
-                    vm.errorMessage = "File import failed: \(err.localizedDescription)"
                 }
             }
         }
