@@ -636,33 +636,42 @@ final class AppViewModel: ObservableObject {
 
         let pairingPath = PairingController.pairingFilePath()
 
-        // 1×1 fully-transparent PNG (67 bytes) and a 1-page blank PDF for the
-        // three .pdf variants used by transit-style passes.
-        let transparentPNG = Data([
-            0x89,0x50,0x4E,0x47,0x0D,0x0A,0x1A,0x0A,
-            0x00,0x00,0x00,0x0D,0x49,0x48,0x44,0x52,
-            0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x01,
-            0x08,0x06,0x00,0x00,0x00,0x1F,0x15,0xC4,0x89,
-            0x00,0x00,0x00,0x0D,0x49,0x44,0x41,0x54,
-            0x78,0x9C,0x62,0x00,0x01,0x00,0x00,0x05,
-            0x00,0x01,0x0D,0x0A,0x2D,0xB4,
-            0x00,0x00,0x00,0x00,0x49,0x45,0x4E,0x44,0xAE,0x42,0x60,0x82
-        ])
+        // Fully-transparent PNGs at the EXACT dimensions the flash writes.
+        // A 1x1 stub triggered Wallet's placeholder ("random purple") — a
+        // properly-sized transparent image is decoded successfully and renders
+        // nothing on top of the card's own background color from pass.json.
+        func transparentPNG(size: CGSize) -> Data {
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 1.0
+            format.opaque = false
+            let renderer = UIGraphicsImageRenderer(size: size, format: format)
+            let img = renderer.image { ctx in
+                UIColor.clear.setFill()
+                ctx.fill(CGRect(origin: .zero, size: size))
+            }
+            return img.pngData() ?? Data()
+        }
+        let png3x = transparentPNG(size: CGSize(width: 1536, height: 969))
+        let png2x = transparentPNG(size: CGSize(width: 1024, height: 646))
         let blankPDF: Data = {
-            let renderer = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 1, height: 1))
-            return renderer.pdfData { ctx in ctx.beginPage() }
+            let rect = CGRect(x: 0, y: 0, width: 1536, height: 969)
+            let renderer = UIGraphicsPDFRenderer(bounds: rect)
+            return renderer.pdfData { ctx in
+                ctx.beginPage()
+                // Draw nothing — page is left transparent.
+            }
         }()
 
         // Filenames must match those written by ImageEngine.prepareAllCardSkins.
         let stubFiles: [String: Data] = [
-            "cardBackgroundCombined@3x.png": transparentPNG,
-            "diffuse@3x.png":                transparentPNG,
-            "background@3x.png":             transparentPNG,
-            "strip@3x.png":                  transparentPNG,
-            "cardBackgroundCombined@2x.png": transparentPNG,
-            "diffuse@2x.png":                transparentPNG,
-            "background@2x.png":             transparentPNG,
-            "strip@2x.png":                  transparentPNG,
+            "cardBackgroundCombined@3x.png": png3x,
+            "diffuse@3x.png":                png3x,
+            "background@3x.png":             png3x,
+            "strip@3x.png":                  png3x,
+            "cardBackgroundCombined@2x.png": png2x,
+            "diffuse@2x.png":                png2x,
+            "background@2x.png":             png2x,
+            "strip@2x.png":                  png2x,
             "cardBackgroundCombined.pdf":    blankPDF,
             "background.pdf":                blankPDF,
             "strip.pdf":                     blankPDF,

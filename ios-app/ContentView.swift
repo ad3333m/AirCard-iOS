@@ -372,7 +372,7 @@ struct ContentView: View {
         }
         // Diagnostic build badge — if you don't see this, you're on the OLD app.
         .overlay(alignment: .topTrailing) {
-            Text("build 7")
+            Text("build 8")
                 .font(.system(size: 9, weight: .bold, design: .monospaced))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 6)
