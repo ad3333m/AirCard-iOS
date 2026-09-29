@@ -372,7 +372,7 @@ struct ContentView: View {
         }
         // Diagnostic build badge — if you don't see this, you're on the OLD app.
         .overlay(alignment: .topTrailing) {
-            Text("build 6")
+            Text("build 7")
                 .font(.system(size: 9, weight: .bold, design: .monospaced))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 6)
@@ -1413,7 +1413,6 @@ struct PasscodeThemeTab: View {
 
 struct ApplyThemeSection: View {
     @EnvironmentObject var vm: AppViewModel
-    @State private var showDocumentPicker = false
 
     var body: some View {
         // Themes dropped directly into Documents folder
@@ -1439,10 +1438,10 @@ struct ApplyThemeSection: View {
 
         Section {
             VStack(alignment: .leading, spacing: 6) {
-                Label("Easiest way to load a theme", systemImage: "lightbulb.fill")
+                Label("How to load a theme", systemImage: "lightbulb.fill")
                     .font(.caption.bold())
                     .foregroundStyle(.orange)
-                Text("Open the Files app → On My iPhone → AirTweak, and drop your .passthm file there. It will appear in the list above with a Load button — no picker needed.")
+                Text("Open the Files app → On My iPhone → AirTweak, and drop your .passthm file there. It will appear in the list above with a Load button.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1454,57 +1453,18 @@ struct ApplyThemeSection: View {
                         .font(.caption)
                 }
                 .buttonStyle(.borderless)
-            }
-            .padding(.vertical, 4)
-        }
-
-        Section("Browse Files") {
-            HStack {
-                Button {
-                    // Immediate marker: if you tap this and NO log line appears,
-                    // you're not running this build.
-                    vm.passthmFlashLog = ["📂 Opening file picker… (build 6)"]
-                    showDocumentPicker = true
-                } label: {
-                    Label(vm.loadedTheme == nil ? "Choose .passthm from Files…" : "Change .passthm…",
-                          systemImage: "doc.badge.plus")
-                        .frame(maxWidth: .infinity, alignment: .center)
-                }
 
                 if vm.loadedTheme != nil {
-                    Button {
+                    Button(role: .destructive) {
                         vm.clearLoadedTheme()
                     } label: {
-                        Text("Clear")
-                            .font(.caption.bold())
-                            .foregroundStyle(.red)
+                        Label("Clear loaded theme", systemImage: "xmark.circle")
+                            .font(.caption)
                     }
                     .buttonStyle(.borderless)
                 }
             }
-            // Native SwiftUI file importer accepting any file so .passthm is
-            // never greyed-out. Reads bytes synchronously while the security
-            // scope is valid, avoiding the earlier scope/async race.
-            .fileImporter(
-                isPresented: $showDocumentPicker,
-                allowedContentTypes: [.data, .item, .content, .archive, .zip],
-                allowsMultipleSelection: false
-            ) { result in
-                switch result {
-                case .success(let urls):
-                    guard let url = urls.first else {
-                        vm.passthmFlashLog.append("• Picker returned no file.")
-                        return
-                    }
-                    let scoped = url.startAccessingSecurityScopedResource()
-                    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-                    let data = (try? Data(contentsOf: url)) ?? Data()
-                    vm.loadPassthmData(data, name: url.lastPathComponent)
-                case .failure(let err):
-                    vm.passthmFlashLog.append("❌ File import failed: \(err.localizedDescription)")
-                    vm.errorMessage = "File import failed: \(err.localizedDescription)"
-                }
-            }
+            .padding(.vertical, 4)
         }
 
         if let theme = vm.loadedTheme {

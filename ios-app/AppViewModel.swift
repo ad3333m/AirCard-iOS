@@ -610,11 +610,13 @@ final class AppViewModel: ObservableObject {
         cards.contains { $0.isSelected }
     }
 
-    /// Restore stock card art on the SELECTED cards by clearing local custom
-    /// state and forcing iOS Wallet to regenerate the pass preview cache. The
-    /// pkpass folder's design assets are unchanged (we don't have the original
-    /// Apple art to restore), so if Wallet keeps rendering the custom skin
-    /// after this, the user is instructed to remove & re-add the card.
+    /// Restore stock card art on the SELECTED cards. The exploit FFI can only
+    /// write files (not read them), so we can't back up Apple's original bytes
+    /// before overwriting. Instead we overwrite each of the 11 files the flash
+    /// wrote (@2x/@3x/pdf strip/background/diffuse/cardBackgroundCombined)
+    /// with 1×1 transparent stubs, then invalidate the Wallet pass cache. When
+    /// these files are effectively blank, Wallet falls back to its native card
+    /// look on next refresh.
     func restoreStockCardSkins() {
         guard canRestoreCardSkins else {
             errorMessage = "Select at least one card first (pairing also required)."
@@ -634,6 +636,38 @@ final class AppViewModel: ObservableObject {
 
         let pairingPath = PairingController.pairingFilePath()
 
+        // 1×1 fully-transparent PNG (67 bytes) and a 1-page blank PDF for the
+        // three .pdf variants used by transit-style passes.
+        let transparentPNG = Data([
+            0x89,0x50,0x4E,0x47,0x0D,0x0A,0x1A,0x0A,
+            0x00,0x00,0x00,0x0D,0x49,0x48,0x44,0x52,
+            0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x01,
+            0x08,0x06,0x00,0x00,0x00,0x1F,0x15,0xC4,0x89,
+            0x00,0x00,0x00,0x0D,0x49,0x44,0x41,0x54,
+            0x78,0x9C,0x62,0x00,0x01,0x00,0x00,0x05,
+            0x00,0x01,0x0D,0x0A,0x2D,0xB4,
+            0x00,0x00,0x00,0x00,0x49,0x45,0x4E,0x44,0xAE,0x42,0x60,0x82
+        ])
+        let blankPDF: Data = {
+            let renderer = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 1, height: 1))
+            return renderer.pdfData { ctx in ctx.beginPage() }
+        }()
+
+        // Filenames must match those written by ImageEngine.prepareAllCardSkins.
+        let stubFiles: [String: Data] = [
+            "cardBackgroundCombined@3x.png": transparentPNG,
+            "diffuse@3x.png":                transparentPNG,
+            "background@3x.png":             transparentPNG,
+            "strip@3x.png":                  transparentPNG,
+            "cardBackgroundCombined@2x.png": transparentPNG,
+            "diffuse@2x.png":                transparentPNG,
+            "background@2x.png":             transparentPNG,
+            "strip@2x.png":                  transparentPNG,
+            "cardBackgroundCombined.pdf":    blankPDF,
+            "background.pdf":                blankPDF,
+            "strip.pdf":                     blankPDF,
+        ]
+
         Task.detached { [weak self] in
             guard let self = self else { return }
             let total = Double(targets.count)
@@ -641,30 +675,72 @@ final class AppViewModel: ObservableObject {
 
             for (i, card) in targets.enumerated() {
                 let cleanId = CardItem.cleanCardId(card.id) ?? card.id
+                let safeCardId = cleanId.replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "+", with: "-")
                 await MainActor.run {
                     self.cardFlashLog.append("[\(i+1)/\(targets.count)] Restoring \(cleanId.prefix(12))…")
                     self.cardFlashProgress = Double(i) / total
-                    // Clear the local custom-image state so nothing is queued.
                     self.clearCardImage(for: card.id)
                 }
 
-                // Invalidate the pass cache leaves so Wallet regenerates its
-                // preview from the pkpass folder. Best effort — some iOS
-                // versions don't have .cache / .pkcache.
+                // 1. Stage the 11 transparent stub files.
+                let stageDir = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("airlift_restore_\(safeCardId)_\(UUID().uuidString)")
+                try? FileManager.default.createDirectory(at: stageDir, withIntermediateDirectories: true)
+                for (name, data) in stubFiles {
+                    try? data.write(to: stageDir.appendingPathComponent(name))
+                }
+
+                // 2. Overwrite the pkpass folder contents with the stubs.
+                let pkpassTarget = "/var/mobile/Library/Passes/Cards/\(cleanId).pkpass"
+                await MainActor.run {
+                    self.cardFlashLog.append("  ⚡ Overwriting custom skin files with blank stubs…")
+                }
+                var overwriteOK = false
+                var overwriteErr: String? = nil
+                await withCheckedContinuation { cont in
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        var outError: UnsafeMutablePointer<CChar>? = nil
+                        let rc = pairingPath.withCString { pairC in
+                            stageDir.path.withCString { srcC in
+                                pkpassTarget.withCString { tgtC in
+                                    al_exploit_write_dir(pairC, srcC, tgtC, { _, msg in
+                                        guard let msg = msg else { return }
+                                        let line = String(cString: msg)
+                                        DispatchQueue.main.async { AppViewModel.shared?.cardFlashLog.append("    " + line) }
+                                    }, nil, &outError)
+                                }
+                            }
+                        }
+                        if let p = outError {
+                            overwriteErr = String(validatingUTF8: p)
+                            al_string_free(p)
+                        }
+                        overwriteOK = (rc == 0)
+                        cont.resume()
+                    }
+                }
+                try? FileManager.default.removeItem(at: stageDir)
+
+                if !overwriteOK {
+                    await MainActor.run {
+                        self.cardFlashLog.append("  ❌ Failed to overwrite skins: \(overwriteErr ?? "exploit error")")
+                    }
+                    continue
+                }
+
+                // 3. Invalidate the Wallet pass cache so previews regenerate.
                 let stageInvDir = FileManager.default.temporaryDirectory
-                    .appendingPathComponent("airlift_restore_\(UUID().uuidString)")
+                    .appendingPathComponent("airlift_inv_\(UUID().uuidString)")
                 try? FileManager.default.createDirectory(at: stageInvDir, withIntermediateDirectories: true)
                 for leaf in ["FrontFace", "Preview", "PlaceHolder"] {
                     try? Data("corrupted".utf8).write(to: stageInvDir.appendingPathComponent(leaf))
                 }
-
-                var anyWrite = false
                 for ext in [".cache", ".pkcache"] {
                     let cacheTarget = "/var/mobile/Library/Passes/Cards/\(cleanId)\(ext)"
                     await withCheckedContinuation { cont in
                         DispatchQueue.global(qos: .userInitiated).async {
                             var outError: UnsafeMutablePointer<CChar>? = nil
-                            let rc = pairingPath.withCString { pairC in
+                            _ = pairingPath.withCString { pairC in
                                 stageInvDir.path.withCString { srcC in
                                     cacheTarget.withCString { tgtC in
                                         al_exploit_write_dir(pairC, srcC, tgtC, nil, nil, &outError)
@@ -672,23 +748,16 @@ final class AppViewModel: ObservableObject {
                                 }
                             }
                             if let p = outError { al_string_free(p) }
-                            if rc == 0 { anyWrite = true }
                             cont.resume()
                         }
                     }
                 }
                 try? FileManager.default.removeItem(at: stageInvDir)
 
-                if anyWrite {
-                    successCount += 1
-                    await MainActor.run {
-                        self.cardFlashLog.append("  ✅ Cache invalidated for \(cleanId.prefix(10)).")
-                        self.cardFlashProgress = Double(i + 1) / total
-                    }
-                } else {
-                    await MainActor.run {
-                        self.cardFlashLog.append("  ⚠️ Could not touch cache for \(cleanId.prefix(10)) — Wallet may still show the custom art.")
-                    }
+                successCount += 1
+                await MainActor.run {
+                    self.cardFlashLog.append("  ✅ Stubs written & cache invalidated for \(cleanId.prefix(10)).")
+                    self.cardFlashProgress = Double(i + 1) / total
                 }
             }
 
@@ -696,11 +765,11 @@ final class AppViewModel: ObservableObject {
                 self.cardFlashPhase = .done(ok: successCount > 0)
                 self.cardFlashProgress = 1.0
                 if successCount > 0 {
-                    self.cardFlashLog.append("🎉 Restored \(successCount)/\(targets.count) card(s). Force-close Wallet to refresh; if the custom art still shows, remove & re-add the card.")
-                    self.successAlertMessage = "Stock restore attempted on \(successCount) card(s).\n\nForce-close the Wallet app to refresh. If the custom art still shows, remove and re-add the card in Wallet to get the original Apple design back."
+                    self.cardFlashLog.append("🎉 Restored \(successCount)/\(targets.count) card(s). Force-close Wallet to see the stock look; if you need the exact original Apple artwork, remove & re-add the card in Wallet.")
+                    self.successAlertMessage = "Stock restore applied to \(successCount) card(s)!\n\nForce-close the Wallet app on your iPhone to see the change. If you need the exact original Apple artwork (not just the plain stock rendering), remove and re-add the card in Wallet."
                     self.showSuccessAlert = true
                 } else {
-                    self.cardFlashLog.append("❌ Restore did not reach any pass caches. Check pairing / VPN.")
+                    self.cardFlashLog.append("❌ Restore did not reach any cards. Check pairing / VPN.")
                 }
             }
         }
