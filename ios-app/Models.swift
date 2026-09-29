@@ -671,48 +671,125 @@ private extension Data {
 // MARK: - PasscodeThemeReader (.passthm → key images)
 
 import AirliftFFI
+import Compression
+
+/// Minimal, dependency-free ZIP reader for .passthm archives.
+///
+/// The theme loader previously extracted archives through the Rust
+/// `al_passthm_extract` FFI. That relies on the prebuilt static library
+/// matching the Rust source; when it doesn't, extraction silently fails and
+/// `inspect` returns nil — no preview, nothing to apply. Parsing the archive
+/// natively here removes that dependency entirely. Handles the two methods a
+/// .passthm ever uses: stored (0) and deflate (8, via Apple's Compression
+/// framework — COMPRESSION_ZLIB decodes a raw DEFLATE stream as stored in zip).
+enum MiniZip {
+    /// Returns every file entry as (path, decompressed bytes). Directories skipped.
+    static func entries(in data: Data) -> [(name: String, data: Data)] {
+        let bytes = [UInt8](data)
+        let n = bytes.count
+        guard n >= 22 else { return [] }
+
+        func u16(_ o: Int) -> Int { Int(bytes[o]) | (Int(bytes[o + 1]) << 8) }
+        func u32(_ o: Int) -> Int {
+            Int(bytes[o]) | (Int(bytes[o + 1]) << 8) | (Int(bytes[o + 2]) << 16) | (Int(bytes[o + 3]) << 24)
+        }
+
+        // Locate End Of Central Directory (sig 0x06054b50), scanning back over
+        // an optional trailing comment (max 65535 bytes).
+        var eocd = -1
+        let minStart = max(0, n - 22 - 65535)
+        var i = n - 22
+        while i >= minStart {
+            if bytes[i] == 0x50, bytes[i + 1] == 0x4b, bytes[i + 2] == 0x05, bytes[i + 3] == 0x06 {
+                eocd = i; break
+            }
+            i -= 1
+        }
+        guard eocd >= 0 else { return [] }
+
+        let total = u16(eocd + 10)
+        var cd = u32(eocd + 16)   // central directory offset
+        var results: [(String, Data)] = []
+
+        for _ in 0..<total {
+            guard cd + 46 <= n, u32(cd) == 0x02014b50 else { break }
+            let method     = u16(cd + 10)
+            let compSize   = u32(cd + 20)
+            let uncompSize = u32(cd + 24)
+            let nameLen    = u16(cd + 28)
+            let extraLen   = u16(cd + 30)
+            let commentLen = u16(cd + 32)
+            let localOff   = u32(cd + 42)
+            let nameStart  = cd + 46
+            guard nameStart + nameLen <= n else { break }
+            let name = String(decoding: bytes[nameStart..<nameStart + nameLen], as: UTF8.self)
+
+            // The local header's extra-field length can differ from the central
+            // one, so recompute the data offset from the local header.
+            if !name.hasSuffix("/"), localOff + 30 <= n, u32(localOff) == 0x04034b50 {
+                let lNameLen  = u16(localOff + 26)
+                let lExtraLen = u16(localOff + 28)
+                let dataStart = localOff + 30 + lNameLen + lExtraLen
+                if dataStart + compSize <= n {
+                    let comp = Array(bytes[dataStart..<dataStart + compSize])
+                    let out: [UInt8]?
+                    switch method {
+                    case 0:  out = comp
+                    case 8:  out = inflate(comp, expected: uncompSize)
+                    default: out = nil
+                    }
+                    if let out = out { results.append((name, Data(out))) }
+                }
+            }
+            cd = nameStart + nameLen + extraLen + commentLen
+        }
+        return results
+    }
+
+    /// Inflate a raw DEFLATE stream (as stored in a zip entry) to `expected` bytes.
+    private static func inflate(_ input: [UInt8], expected: Int) -> [UInt8]? {
+        guard !input.isEmpty else { return expected == 0 ? [] : nil }
+        let capacity = max(expected, 1)
+        var dst = [UInt8](repeating: 0, count: capacity)
+        let written = input.withUnsafeBufferPointer { src -> Int in
+            dst.withUnsafeMutableBufferPointer { dstPtr in
+                compression_decode_buffer(
+                    dstPtr.baseAddress!, capacity,
+                    src.baseAddress!, input.count,
+                    nil, COMPRESSION_ZLIB
+                )
+            }
+        }
+        guard written > 0 else { return nil }
+        if written < capacity { dst.removeLast(capacity - written) }
+        return dst
+    }
+}
 
 enum PasscodeThemeReader {
 
     /// Extract key-button images from a .passthm zip file.
     /// Returns a dict [digit → UIImage], raw data dict [digit → Data], and the total file count.
     static func inspect(url: URL) -> (keys: [String: UIImage], rawData: [String: Data], fileCount: Int)? {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("airlift_inspect_\(UUID().uuidString)")
-        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tempDir) }
-
-        // 1. Extract zip via Rust al_passthm_extract (handles deflated & stored zip entries)
-        let rc = url.path.withCString { arcC in
-            tempDir.path.withCString { dstC in
-                al_passthm_extract(arcC, dstC)
-            }
-        }
-        guard rc == 0 else { return nil }
-
-        let files = (FileManager.default.subpaths(atPath: tempDir.path) ?? [])
-        guard !files.isEmpty else { return nil }
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        let entries = MiniZip.entries(in: data)
+        guard !entries.isEmpty else { return nil }
 
         var keys: [String: UIImage] = [:]
         var rawData: [String: Data] = [:]
         var fileCount = 0
 
-        for file in files {
-            guard !file.hasPrefix("."), !file.contains("__MACOSX") else { continue }
-            let lower = file.lowercased()
+        for (path, fileData) in entries {
+            guard !path.hasPrefix("."), !path.contains("__MACOSX") else { continue }
+            let lower = path.lowercased()
             guard lower.hasSuffix(".png") || lower.hasSuffix(".jpg") || lower.hasSuffix(".jpeg") else { continue }
 
             fileCount += 1
-            let filename = (file as NSString).lastPathComponent
-            if let digit = extractDigit(from: filename) {
-                if keys[digit] == nil {
-                    let filePath = tempDir.appendingPathComponent(file).path
-                    if let data = try? Data(contentsOf: URL(fileURLWithPath: filePath)) {
-                        rawData[digit] = data
-                        if let img = ImageEngine.safeImageFromData(data, maxDimension: 512) {
-                            keys[digit] = img
-                        }
-                    }
+            let filename = (path as NSString).lastPathComponent
+            if let digit = extractDigit(from: filename), keys[digit] == nil {
+                rawData[digit] = fileData
+                if let img = ImageEngine.safeImageFromData(fileData, maxDimension: 512) {
+                    keys[digit] = img
                 }
             }
         }
