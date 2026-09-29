@@ -24,6 +24,12 @@ struct AirCardApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(vm)
+                .onOpenURL { url in
+                    // Handle files opened from outside the app (Files "Open in…",
+                    // AirDrop, share sheet). Without this, iOS launches the app for a
+                    // .passthm/.tendies/pairing file but nothing consumes the URL.
+                    vm.handleIncomingURL(url)
+                }
         }
     }
 }

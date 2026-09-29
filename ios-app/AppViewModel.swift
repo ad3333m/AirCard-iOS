@@ -844,6 +844,67 @@ final class AppViewModel: ObservableObject {
         loadPassthm(url: url)
     }
 
+    // MARK: - External file open (onOpenURL)
+
+    /// Entry point for files opened from outside the app (Files "Open in…",
+    /// AirDrop, share sheet). Dispatches by extension to the right importer and
+    /// switches to the matching tab so the user sees the result.
+    func handleIncomingURL(_ url: URL) {
+        switch url.pathExtension.lowercased() {
+        case "passthm":
+            importPassthm(from: url)
+        case "tendies":
+            let secured = url.startAccessingSecurityScopedResource()
+            selectedTab = .wallpapers
+            Task {
+                await importTendieFiles(urls: [url])
+                if secured { url.stopAccessingSecurityScopedResource() }
+            }
+        case "plist", "mobiledevicepairing", "mobilepair":
+            _ = importPairingFile(from: url, originalName: url.lastPathComponent)
+            selectedTab = .pairing
+        default:
+            // Unknown extension — best-effort treat as a passcode theme archive.
+            importPassthm(from: url)
+        }
+    }
+
+    /// Copies an externally-opened .passthm into the app's Documents folder,
+    /// then loads it for preview and reveals it in the Passcode › Apply Theme tab.
+    @discardableResult
+    func importPassthm(from sourceURL: URL) -> Bool {
+        let isSecured = sourceURL.startAccessingSecurityScopedResource()
+        defer { if isSecured { sourceURL.stopAccessingSecurityScopedResource() } }
+
+        guard let data = try? Data(contentsOf: sourceURL), !data.isEmpty else {
+            errorMessage = "Couldn't read the theme file — it may be empty or inaccessible."
+            return false
+        }
+
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        var name = sourceURL.lastPathComponent
+        if name.isEmpty || !name.lowercased().hasSuffix(".passthm") {
+            name = "Imported_\(Int(Date().timeIntervalSince1970)).passthm"
+        }
+        let destURL = docs.appendingPathComponent(name)
+
+        do {
+            if FileManager.default.fileExists(atPath: destURL.path) {
+                try FileManager.default.removeItem(at: destURL)
+            }
+            try data.write(to: destURL, options: .atomic)
+        } catch {
+            errorMessage = "Failed to save imported theme: \(error.localizedDescription)"
+            return false
+        }
+
+        scanDocumentsDirectory()
+        selectedTab = .passcodeThemes
+        passcodeMode = .applyTheme
+        loadPassthm(url: destURL)
+        return true
+    }
+
     func clearLoadedTheme() {
         loadedTheme = nil
         passthmFlashPhase = .idle

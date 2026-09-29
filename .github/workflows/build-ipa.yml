@@ -1,0 +1,33 @@
+name: Build unsigned IPA
+
+# Builds an unsigned AirTweak .ipa on a macOS runner and uploads it as an
+# artifact. Install it with Sideloadly / AltStore (they re-sign with your
+# Apple ID). Runs on every push, and on demand from the Actions tab.
+on:
+  push:
+    branches: [ main, airtweak ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 16
+        run: sudo xcode-select -s /Applications/Xcode_16.4.app || sudo xcode-select -s /Applications/Xcode_16.2.app
+
+      - name: Show toolchain
+        run: xcodebuild -version && xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Build unsigned IPA
+        run: |
+          chmod +x build-ipa.sh
+          ./build-ipa.sh Release
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: AirTweak-unsigned-ipa
+          path: build/*.ipa
+          if-no-files-found: error
