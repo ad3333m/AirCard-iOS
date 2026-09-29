@@ -601,6 +601,111 @@ final class AppViewModel: ObservableObject {
         cards.contains { $0.isSelected && ($0.customImage != nil || $0.customImageData != nil) }
     }
 
+    /// Restore is available whenever there's at least one selected card and
+    /// pairing is up — we don't require a custom image, since the goal is to
+    /// undo one that was previously flashed even if the app state was cleared.
+    var canRestoreCardSkins: Bool {
+        hasPairingFile &&
+        cardFlashPhase != .running &&
+        cards.contains { $0.isSelected }
+    }
+
+    /// Restore stock card art on the SELECTED cards by clearing local custom
+    /// state and forcing iOS Wallet to regenerate the pass preview cache. The
+    /// pkpass folder's design assets are unchanged (we don't have the original
+    /// Apple art to restore), so if Wallet keeps rendering the custom skin
+    /// after this, the user is instructed to remove & re-add the card.
+    func restoreStockCardSkins() {
+        guard canRestoreCardSkins else {
+            errorMessage = "Select at least one card first (pairing also required)."
+            return
+        }
+        let targets = cards.filter { $0.isSelected }
+        guard !targets.isEmpty else { return }
+
+        cardFlashPhase    = .running
+        cardFlashProgress = 0
+        cardFlashLog.removeAll()
+        errorMessage = nil
+
+        if !vpnUp {
+            cardFlashLog.append("⚠️ Notice: Loopback VPN not detected, attempting direct loopback (127.0.0.1)...")
+        }
+
+        let pairingPath = PairingController.pairingFilePath()
+
+        Task.detached { [weak self] in
+            guard let self = self else { return }
+            let total = Double(targets.count)
+            var successCount = 0
+
+            for (i, card) in targets.enumerated() {
+                let cleanId = CardItem.cleanCardId(card.id) ?? card.id
+                await MainActor.run {
+                    self.cardFlashLog.append("[\(i+1)/\(targets.count)] Restoring \(cleanId.prefix(12))…")
+                    self.cardFlashProgress = Double(i) / total
+                    // Clear the local custom-image state so nothing is queued.
+                    self.clearCardImage(for: card.id)
+                }
+
+                // Invalidate the pass cache leaves so Wallet regenerates its
+                // preview from the pkpass folder. Best effort — some iOS
+                // versions don't have .cache / .pkcache.
+                let stageInvDir = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("airlift_restore_\(UUID().uuidString)")
+                try? FileManager.default.createDirectory(at: stageInvDir, withIntermediateDirectories: true)
+                for leaf in ["FrontFace", "Preview", "PlaceHolder"] {
+                    try? Data("corrupted".utf8).write(to: stageInvDir.appendingPathComponent(leaf))
+                }
+
+                var anyWrite = false
+                for ext in [".cache", ".pkcache"] {
+                    let cacheTarget = "/var/mobile/Library/Passes/Cards/\(cleanId)\(ext)"
+                    await withCheckedContinuation { cont in
+                        DispatchQueue.global(qos: .userInitiated).async {
+                            var outError: UnsafeMutablePointer<CChar>? = nil
+                            let rc = pairingPath.withCString { pairC in
+                                stageInvDir.path.withCString { srcC in
+                                    cacheTarget.withCString { tgtC in
+                                        al_exploit_write_dir(pairC, srcC, tgtC, nil, nil, &outError)
+                                    }
+                                }
+                            }
+                            if let p = outError { al_string_free(p) }
+                            if rc == 0 { anyWrite = true }
+                            cont.resume()
+                        }
+                    }
+                }
+                try? FileManager.default.removeItem(at: stageInvDir)
+
+                if anyWrite {
+                    successCount += 1
+                    await MainActor.run {
+                        self.cardFlashLog.append("  ✅ Cache invalidated for \(cleanId.prefix(10)).")
+                        self.cardFlashProgress = Double(i + 1) / total
+                    }
+                } else {
+                    await MainActor.run {
+                        self.cardFlashLog.append("  ⚠️ Could not touch cache for \(cleanId.prefix(10)) — Wallet may still show the custom art.")
+                    }
+                }
+            }
+
+            await MainActor.run {
+                self.cardFlashPhase = .done(ok: successCount > 0)
+                self.cardFlashProgress = 1.0
+                if successCount > 0 {
+                    self.cardFlashLog.append("🎉 Restored \(successCount)/\(targets.count) card(s). Force-close Wallet to refresh; if the custom art still shows, remove & re-add the card.")
+                    self.successAlertMessage = "Stock restore attempted on \(successCount) card(s).\n\nForce-close the Wallet app to refresh. If the custom art still shows, remove and re-add the card in Wallet to get the original Apple design back."
+                    self.showSuccessAlert = true
+                } else {
+                    self.cardFlashLog.append("❌ Restore did not reach any pass caches. Check pairing / VPN.")
+                }
+            }
+        }
+    }
+
     func flashCards() {
         guard canFlashCards else { return }
         let selected = cards.filter { $0.isSelected && ($0.customImage != nil || $0.customImageData != nil) }

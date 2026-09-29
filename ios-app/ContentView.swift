@@ -372,7 +372,7 @@ struct ContentView: View {
         }
         // Diagnostic build badge — if you don't see this, you're on the OLD app.
         .overlay(alignment: .topTrailing) {
-            Text("build 5")
+            Text("build 6")
                 .font(.system(size: 9, weight: .bold, design: .monospaced))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 6)
@@ -918,6 +918,7 @@ struct WalletCardsTab: View {
     @State private var isDocumentPickerPresented: Bool = false
     @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var showCredits = false
+    @State private var showRestoreCardsConfirm = false
 
     var body: some View {
         NavigationStack {
@@ -986,6 +987,15 @@ struct WalletCardsTab: View {
 
                             Divider()
 
+                            Button {
+                                showRestoreCardsConfirm = true
+                            } label: {
+                                Label("Restore Stock Card Skins", systemImage: "arrow.uturn.backward.circle")
+                            }
+                            .disabled(!vm.canRestoreCardSkins)
+
+                            Divider()
+
                             Button(role: .destructive) {
                                 withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
                                     vm.clearAllCards()
@@ -1036,6 +1046,24 @@ struct WalletCardsTab: View {
                 Button("Cancel", role: .cancel) {
                     activePicker = nil
                 }
+            }
+            .confirmationDialog(
+                "Restore stock card skins?",
+                isPresented: $showRestoreCardsConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("Restore Selected Cards", role: .destructive) {
+                    vm.restoreStockCardSkins()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(
+                    """
+                    AirTweak will clear the custom skin on each SELECTED card and invalidate its Wallet cache so iOS refreshes the preview.
+
+                    If Wallet still shows the custom art afterwards, remove the card and re-add it in Wallet to get the original Apple design back.
+                    """
+                )
             }
             .photosPicker(
                 isPresented: $isPhotosPickerPresented,
@@ -1390,7 +1418,7 @@ struct ApplyThemeSection: View {
     var body: some View {
         // Themes dropped directly into Documents folder
         if !vm.documentsThemes.isEmpty {
-            Section("Themes in App Folder (On My iPhone › AirCard-iOS)") {
+            Section("Themes in App Folder (On My iPhone › AirTweak)") {
                 ForEach(vm.documentsThemes, id: \.self) { file in
                     HStack {
                         Image(systemName: "paintpalette.fill")
@@ -1409,12 +1437,33 @@ struct ApplyThemeSection: View {
             }
         }
 
+        Section {
+            VStack(alignment: .leading, spacing: 6) {
+                Label("Easiest way to load a theme", systemImage: "lightbulb.fill")
+                    .font(.caption.bold())
+                    .foregroundStyle(.orange)
+                Text("Open the Files app → On My iPhone → AirTweak, and drop your .passthm file there. It will appear in the list above with a Load button — no picker needed.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button {
+                    vm.scanDocumentsDirectory()
+                    vm.passthmFlashLog = ["🔄 Rescanned app folder — \(vm.documentsThemes.count) theme(s) found."]
+                } label: {
+                    Label("Refresh app folder", systemImage: "arrow.clockwise")
+                        .font(.caption)
+                }
+                .buttonStyle(.borderless)
+            }
+            .padding(.vertical, 4)
+        }
+
         Section("Browse Files") {
             HStack {
                 Button {
                     // Immediate marker: if you tap this and NO log line appears,
                     // you're not running this build.
-                    vm.passthmFlashLog = ["📂 Opening file picker… (build 5)"]
+                    vm.passthmFlashLog = ["📂 Opening file picker… (build 6)"]
                     showDocumentPicker = true
                 } label: {
                     Label(vm.loadedTheme == nil ? "Choose .passthm from Files…" : "Change .passthm…",
@@ -1433,19 +1482,27 @@ struct ApplyThemeSection: View {
                     .buttonStyle(.borderless)
                 }
             }
-            // Same document picker that always allowed selection; the only fix is
-            // reading the bytes synchronously in the callback (while the copy is
-            // valid) instead of on a detached task after scope was released.
-            .sheet(isPresented: $showDocumentPicker) {
-                DocumentPickerView(allowedContentTypes: [
-                    UTType(filenameExtension: "passthm") ?? .archive,
-                    UTType.zip,
-                    UTType.archive
-                ]) { url in
+            // Native SwiftUI file importer accepting any file so .passthm is
+            // never greyed-out. Reads bytes synchronously while the security
+            // scope is valid, avoiding the earlier scope/async race.
+            .fileImporter(
+                isPresented: $showDocumentPicker,
+                allowedContentTypes: [.data, .item, .content, .archive, .zip],
+                allowsMultipleSelection: false
+            ) { result in
+                switch result {
+                case .success(let urls):
+                    guard let url = urls.first else {
+                        vm.passthmFlashLog.append("• Picker returned no file.")
+                        return
+                    }
                     let scoped = url.startAccessingSecurityScopedResource()
                     defer { if scoped { url.stopAccessingSecurityScopedResource() } }
                     let data = (try? Data(contentsOf: url)) ?? Data()
                     vm.loadPassthmData(data, name: url.lastPathComponent)
+                case .failure(let err):
+                    vm.passthmFlashLog.append("❌ File import failed: \(err.localizedDescription)")
+                    vm.errorMessage = "File import failed: \(err.localizedDescription)"
                 }
             }
         }
