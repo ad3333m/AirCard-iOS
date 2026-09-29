@@ -372,7 +372,7 @@ struct ContentView: View {
         }
         // Diagnostic build badge — if you don't see this, you're on the OLD app.
         .overlay(alignment: .topTrailing) {
-            Text("build 11")
+            Text("build 12")
                 .font(.system(size: 9, weight: .bold, design: .monospaced))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 6)
@@ -935,13 +935,15 @@ struct WalletCardsTab: View {
     @State private var showAddSheet = false
     enum ActiveCardPicker: Identifiable {
         case singleCard(String)
-        case originalCard(String)     // Picks the "Original / backup" image
-        case bulkAll
+        case originalCard(String)     // Sets the Original for one card
+        case bulkAll                  // Sets custom skin for all selected
+        case bulkOriginal             // Sets Original for all selected
         var id: String {
             switch self {
             case .singleCard(let id): return "custom_" + id
             case .originalCard(let id): return "original_" + id
             case .bulkAll: return "bulk_all"
+            case .bulkOriginal: return "bulk_original"
             }
         }
     }
@@ -1074,16 +1076,11 @@ struct WalletCardsTab: View {
                 }
             }
             .confirmationDialog(
-                "Is your picture on your card the original?",
+                "Did you save your original picture of your card?",
                 isPresented: $showFlashOriginalGate,
                 titleVisibility: .visible
             ) {
-                Button("Yes — save & flash") {
-                    // Save the picture the user is about to flash as this card's
-                    // Original (so Restore can go back to it), then flash. We
-                    // only overwrite the saved Original if none exists yet so
-                    // a real original from an earlier Yes isn't clobbered.
-                    vm.saveOriginalsBeforeFlash()
+                Button("Yes — flash it") {
                     vm.flashCards()
                 }
                 Button("No", role: .destructive) {
@@ -1091,12 +1088,12 @@ struct WalletCardsTab: View {
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("If Yes, AirTweak will save the picture you're about to flash as this card's Original, then flash it. Later, tapping Restore will bring this picture back.")
+                Text("Before flashing a new skin, save your card's current original artwork with the 'Save Card Picture' button — otherwise you won't be able to restore it later.")
             }
-            .alert("Access to flash picture denied", isPresented: $showFlashDeniedAlert) {
+            .alert("Save your original first", isPresented: $showFlashDeniedAlert) {
                 Button("OK", role: .cancel) {}
             } message: {
-                Text("Flashing is only allowed when the picture is your card's original artwork. Pick a different image and try again.")
+                Text("Access to flash picture denied. Tap 'Save Card Picture' first to preserve the current card artwork, then try flashing again.")
             }
             .confirmationDialog(
                 "Restore stock card picture?",
@@ -1138,6 +1135,8 @@ struct WalletCardsTab: View {
                                 vm.setCardOriginalImage(for: cardId, image: image)
                             case .bulkAll:
                                 vm.setSkinForAllCards(image: image)
+                            case .bulkOriginal:
+                                vm.setOriginalForAllCards(image: image)
                             }
                         }
                     }
@@ -1163,6 +1162,8 @@ struct WalletCardsTab: View {
                             vm.setCardOriginalImage(for: cardId, image: image)
                         case .bulkAll:
                             vm.setSkinForAllCards(image: image)
+                        case .bulkOriginal:
+                            vm.setOriginalForAllCards(image: image)
                         }
                     }
                     activePicker = nil
@@ -1247,19 +1248,35 @@ struct WalletCardsTab: View {
             }
 
             if !vm.cards.isEmpty {
-                Button {
-                    showRestoreCardsConfirm = true
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "arrow.uturn.backward.circle")
-                        Text("Restore Stock Card Picture")
-                            .font(.system(size: 15, weight: .semibold))
+                VStack(spacing: 8) {
+                    Button {
+                        activePicker = .bulkOriginal
+                        showSourceDialog = true
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "bookmark.circle.fill")
+                            Text("Save Card Picture")
+                                .font(.system(size: 15, weight: .semibold))
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 44)
                     }
-                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .buttonStyle(.bordered)
+                    .tint(.blue)
+
+                    Button {
+                        showRestoreCardsConfirm = true
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.uturn.backward.circle")
+                            Text("Restore Stock Card Picture")
+                                .font(.system(size: 15, weight: .semibold))
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.orange)
+                    .disabled(!vm.canRestoreCardSkins)
                 }
-                .buttonStyle(.bordered)
-                .tint(.orange)
-                .disabled(!vm.canRestoreCardSkins)
                 .padding(.top, 4)
             }
 
