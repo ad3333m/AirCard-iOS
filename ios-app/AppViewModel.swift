@@ -560,6 +560,40 @@ final class AppViewModel: ObservableObject {
         try? FileManager.default.removeItem(at: path)
     }
 
+    /// Called from the "Is your picture the original? — Yes" confirmation:
+    /// for every SELECTED card that has a queued custom image but no saved
+    /// Original yet, copy the custom image (bytes on disk) into the Original
+    /// slot. Cards that already have a saved Original are left alone — the
+    /// first Yes is authoritative, so the true original isn't overwritten
+    /// later by a meme flash.
+    func saveOriginalsBeforeFlash() {
+        for card in cards where card.isSelected {
+            guard card.originalImageData == nil && card.originalImage == nil else { continue }
+            let customPath = Self.cardImagePath(for: card.id)
+            let origPath = Self.cardOriginalImagePath(for: card.id)
+            var savedData: Data? = card.customImageData
+            if savedData == nil {
+                savedData = try? Data(contentsOf: customPath)
+            }
+            guard let data = savedData, !data.isEmpty else { continue }
+            do {
+                if FileManager.default.fileExists(atPath: origPath.path) {
+                    try FileManager.default.removeItem(at: origPath)
+                }
+                try data.write(to: origPath, options: .atomic)
+                if let idx = cards.firstIndex(where: { $0.id == card.id }) {
+                    cards[idx].originalImageData = data
+                    if let img = ImageEngine.safeImageFromData(data, maxDimension: 512) {
+                        cards[idx].originalImage = img
+                    }
+                }
+            } catch {
+                // Non-fatal: user can still set an Original manually.
+                errorMessage = "Couldn't save original for card \(card.id.prefix(8)): \(error.localizedDescription)"
+            }
+        }
+    }
+
     func saveCards() {
         let hashes = cards.map(\.id)
         UserDefaults.standard.set(hashes, forKey: "aircard.cards")

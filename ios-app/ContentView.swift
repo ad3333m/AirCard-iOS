@@ -372,7 +372,7 @@ struct ContentView: View {
         }
         // Diagnostic build badge — if you don't see this, you're on the OLD app.
         .overlay(alignment: .topTrailing) {
-            Text("build 10")
+            Text("build 11")
                 .font(.system(size: 9, weight: .bold, design: .monospaced))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 6)
@@ -1078,7 +1078,12 @@ struct WalletCardsTab: View {
                 isPresented: $showFlashOriginalGate,
                 titleVisibility: .visible
             ) {
-                Button("Yes — flash it") {
+                Button("Yes — save & flash") {
+                    // Save the picture the user is about to flash as this card's
+                    // Original (so Restore can go back to it), then flash. We
+                    // only overwrite the saved Original if none exists yet so
+                    // a real original from an earlier Yes isn't clobbered.
+                    vm.saveOriginalsBeforeFlash()
                     vm.flashCards()
                 }
                 Button("No", role: .destructive) {
@@ -1086,12 +1091,12 @@ struct WalletCardsTab: View {
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("Only flash an image you actually own the rights to (a personal photo, your own artwork, or your card's original artwork). AirTweak won't flash images that aren't yours.")
+                Text("If Yes, AirTweak will save the picture you're about to flash as this card's Original, then flash it. Later, tapping Restore will bring this picture back.")
             }
             .alert("Access to flash picture denied", isPresented: $showFlashDeniedAlert) {
                 Button("OK", role: .cancel) {}
             } message: {
-                Text("Flashing is only allowed for images you own. Pick a different image and try again.")
+                Text("Flashing is only allowed when the picture is your card's original artwork. Pick a different image and try again.")
             }
             .confirmationDialog(
                 "Restore stock card picture?",
