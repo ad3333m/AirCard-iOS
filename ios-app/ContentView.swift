@@ -370,6 +370,18 @@ struct ContentView: View {
                 .tabItem { Label("Wallpapers", systemImage: "photo.stack.fill") }
                 .tag(AppTab.wallpapers)
         }
+        // Diagnostic build badge — if you don't see this, you're on the OLD app.
+        .overlay(alignment: .topTrailing) {
+            Text("build 5")
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.blue.opacity(0.85), in: Capsule())
+                .padding(.trailing, 8)
+                .padding(.top, 6)
+                .allowsHitTesting(false)
+        }
         .alert("Notice", isPresented: Binding(
             get: { vm.errorMessage != nil },
             set: { if !$0 { vm.errorMessage = nil } }
