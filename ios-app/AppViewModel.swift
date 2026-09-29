@@ -885,6 +885,35 @@ final class AppViewModel: ObservableObject {
         let selected = cards.filter { $0.isSelected && ($0.customImage != nil || $0.customImageData != nil) }
         guard !selected.isEmpty else { return }
 
+        // Auto-save the picture being flashed as this card's Original if no
+        // Original is saved yet. The first thing the user ever flashes on a
+        // card becomes the restore target; later flashes don't overwrite it,
+        // so Restore always brings back the true "first" picture.
+        for card in selected {
+            guard card.originalImageData == nil && card.originalImage == nil else { continue }
+            let customPath = Self.cardImagePath(for: card.id)
+            let origPath = Self.cardOriginalImagePath(for: card.id)
+            var data: Data? = card.customImageData
+            if data == nil {
+                data = try? Data(contentsOf: customPath)
+            }
+            guard let bytes = data, !bytes.isEmpty else { continue }
+            do {
+                if FileManager.default.fileExists(atPath: origPath.path) {
+                    try FileManager.default.removeItem(at: origPath)
+                }
+                try bytes.write(to: origPath, options: .atomic)
+                if let idx = cards.firstIndex(where: { $0.id == card.id }) {
+                    cards[idx].originalImageData = bytes
+                    if let img = ImageEngine.safeImageFromData(bytes, maxDimension: 512) {
+                        cards[idx].originalImage = img
+                    }
+                }
+            } catch {
+                // Non-fatal: user can still set an Original with Save Card Picture.
+            }
+        }
+
         cardFlashPhase    = .running
         cardFlashProgress = 0
         cardFlashLog.removeAll()

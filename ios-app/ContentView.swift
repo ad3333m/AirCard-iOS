@@ -372,7 +372,7 @@ struct ContentView: View {
         }
         // Diagnostic build badge — if you don't see this, you're on the OLD app.
         .overlay(alignment: .topTrailing) {
-            Text("build 12")
+            Text("build 13")
                 .font(.system(size: 9, weight: .bold, design: .monospaced))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 6)
@@ -954,8 +954,6 @@ struct WalletCardsTab: View {
     @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var showCredits = false
     @State private var showRestoreCardsConfirm = false
-    @State private var showFlashOriginalGate = false
-    @State private var showFlashDeniedAlert = false
 
     var body: some View {
         NavigationStack {
@@ -1074,26 +1072,6 @@ struct WalletCardsTab: View {
                 Button("Cancel", role: .cancel) {
                     activePicker = nil
                 }
-            }
-            .confirmationDialog(
-                "Did you save your original picture of your card?",
-                isPresented: $showFlashOriginalGate,
-                titleVisibility: .visible
-            ) {
-                Button("Yes — flash it") {
-                    vm.flashCards()
-                }
-                Button("No", role: .destructive) {
-                    showFlashDeniedAlert = true
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("Before flashing a new skin, save your card's current original artwork with the 'Save Card Picture' button — otherwise you won't be able to restore it later.")
-            }
-            .alert("Save your original first", isPresented: $showFlashDeniedAlert) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text("Access to flash picture denied. Tap 'Save Card Picture' first to preserve the current card artwork, then try flashing again.")
             }
             .confirmationDialog(
                 "Restore stock card picture?",
@@ -1295,7 +1273,7 @@ struct WalletCardsTab: View {
     @ViewBuilder
     private var flashButton: some View {
         Button {
-            showFlashOriginalGate = true
+            vm.flashCards()
         } label: {
             HStack(spacing: 6) {
                 if case .running = vm.cardFlashPhase {
