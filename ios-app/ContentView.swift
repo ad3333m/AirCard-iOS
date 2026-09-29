@@ -372,7 +372,7 @@ struct ContentView: View {
         }
         // Diagnostic build badge — if you don't see this, you're on the OLD app.
         .overlay(alignment: .topTrailing) {
-            Text("build 9")
+            Text("build 10")
                 .font(.system(size: 9, weight: .bold, design: .monospaced))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 6)
@@ -952,8 +952,8 @@ struct WalletCardsTab: View {
     @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var showCredits = false
     @State private var showRestoreCardsConfirm = false
-    @State private var showRestoreOriginalGate = false
-    @State private var showRestoreDeniedAlert = false
+    @State private var showFlashOriginalGate = false
+    @State private var showFlashDeniedAlert = false
 
     var body: some View {
         NavigationStack {
@@ -1075,21 +1075,26 @@ struct WalletCardsTab: View {
             }
             .confirmationDialog(
                 "Is your picture on your card the original?",
-                isPresented: $showRestoreOriginalGate,
+                isPresented: $showFlashOriginalGate,
                 titleVisibility: .visible
             ) {
-                Button("Yes — proceed") {
-                    showRestoreCardsConfirm = true
+                Button("Yes — flash it") {
+                    vm.flashCards()
                 }
                 Button("No", role: .destructive) {
-                    showRestoreDeniedAlert = true
+                    showFlashDeniedAlert = true
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("Restore writes each selected card's saved 'Original Image' back into Wallet. Only continue if the image you have IS your card's original artwork. If it's a modified/custom skin, you should not flash it as a restore.")
+                Text("Only flash an image you actually own the rights to (a personal photo, your own artwork, or your card's original artwork). AirTweak won't flash images that aren't yours.")
+            }
+            .alert("Access to flash picture denied", isPresented: $showFlashDeniedAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("Flashing is only allowed for images you own. Pick a different image and try again.")
             }
             .confirmationDialog(
-                "Restore now?",
+                "Restore stock card picture?",
                 isPresented: $showRestoreCardsConfirm,
                 titleVisibility: .visible
             ) {
@@ -1100,16 +1105,11 @@ struct WalletCardsTab: View {
             } message: {
                 Text(
                     """
-                    AirTweak will flash the saved Original Image on each SELECTED card. Cards without a saved Original fall back to a plain stock rendering.
+                    Cards with a saved Original Image will be flashed back to that artwork. Cards without one show a plain stock rendering.
 
                     Force-close Wallet afterwards to see the change.
                     """
                 )
-            }
-            .alert("Access to flash picture denied", isPresented: $showRestoreDeniedAlert) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text("Restore is only allowed when the image is genuinely your card's original artwork. Set the correct Original Image per card (bookmark icon on the card row), then try Restore again.")
             }
             .photosPicker(
                 isPresented: $isPhotosPickerPresented,
@@ -1243,7 +1243,7 @@ struct WalletCardsTab: View {
 
             if !vm.cards.isEmpty {
                 Button {
-                    showRestoreOriginalGate = true
+                    showRestoreCardsConfirm = true
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "arrow.uturn.backward.circle")
@@ -1273,7 +1273,7 @@ struct WalletCardsTab: View {
     @ViewBuilder
     private var flashButton: some View {
         Button {
-            vm.flashCards()
+            showFlashOriginalGate = true
         } label: {
             HStack(spacing: 6) {
                 if case .running = vm.cardFlashPhase {
