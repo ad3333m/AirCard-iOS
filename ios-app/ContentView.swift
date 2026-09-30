@@ -355,30 +355,33 @@ struct ContentView: View {
     var body: some View {
         TabView(selection: $vm.selectedTab) {
             PairingTab()
-                .tabItem { Label("Pairing", systemImage: "antenna.radiowaves.left.and.right") }
+                .tabItem { Label("Pairing", systemImage: "antenna.radiowaves") }
                 .tag(AppTab.pairing)
 
             WalletCardsTab()
-                .tabItem { Label("Wallet Cards", systemImage: "creditcard.fill") }
+                .tabItem { Label("Cards", systemImage: "creditcard.and.123") }
                 .tag(AppTab.walletCards)
 
             PasscodeThemeTab()
-                .tabItem { Label("Passcode", systemImage: "lock.circle.fill") }
+                .tabItem { Label("Passcode", systemImage: "lock.rectangle.stack.fill") }
                 .tag(AppTab.passcodeThemes)
 
             TendiesView()
-                .tabItem { Label("Wallpapers", systemImage: "photo.stack.fill") }
+                .tabItem { Label("Wallpapers", systemImage: "photo.on.rectangle.angled") }
                 .tag(AppTab.wallpapers)
         }
-        // Diagnostic build badge — if you don't see this, you're on the OLD app.
+        .tint(Brand.blue)
+        // Brand build badge, pill-shaped with the icon's sweep.
         .overlay(alignment: .topTrailing) {
-            Text("build 13")
-                .font(.system(size: 9, weight: .bold, design: .monospaced))
+            Text("v2.4")
+                .font(.system(size: 10, weight: .heavy, design: .rounded))
                 .foregroundStyle(.white)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(Color.blue.opacity(0.85), in: Capsule())
-                .padding(.trailing, 8)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(Brand.sweep, in: Capsule())
+                .overlay(Capsule().strokeBorder(Color.white.opacity(0.25), lineWidth: 0.5))
+                .shadow(color: Brand.violet.opacity(0.4), radius: 6, y: 2)
+                .padding(.trailing, 10)
                 .padding(.top, 6)
                 .allowsHitTesting(false)
         }
@@ -753,22 +756,27 @@ struct WalletCardView: View {
                                 .resizable()
                                 .scaledToFill()
                                 .frame(width: width, height: height)
-                                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
 
                             // Subtle Apple Wallet Card Gloss Overlay
                             LinearGradient(
-                                colors: [.white.opacity(0.18), .clear, .black.opacity(0.12)],
+                                colors: [.white.opacity(0.22), .clear, .black.opacity(0.15)],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             )
-                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+
+                            // Neon rim
+                            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                .strokeBorder(Brand.sweep, lineWidth: 1.2)
+                                .opacity(0.6)
 
                             // Top Right Remove Button
                             Button(action: onClearImage) {
                                 Image(systemName: "xmark.circle.fill")
                                     .font(.system(size: 24))
                                     .foregroundStyle(.white.opacity(0.95))
-                                    .background(Circle().fill(Color.black.opacity(0.55)))
+                                    .background(Circle().fill(Color.black.opacity(0.6)))
                             }
                             .buttonStyle(.plain)
                             .padding(10)
@@ -776,34 +784,23 @@ struct WalletCardView: View {
                     } else {
                         // Empty / Placeholder Card Mockup
                         ZStack {
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .fill(
-                                    LinearGradient(
-                                        colors: [
-                                            Color(uiColor: .secondarySystemBackground),
-                                            Color(uiColor: .tertiarySystemBackground)
-                                        ],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    )
-                                )
+                            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                .fill(Brand.softSweep)
 
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .stroke(
-                                    Color.secondary.opacity(0.25),
-                                    style: StrokeStyle(lineWidth: 1.5, dash: [6, 4])
-                                )
+                            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                .strokeBorder(Brand.sweep, lineWidth: 1.5)
+                                .opacity(0.55)
 
                             // Contactless & Chip icons
                             VStack(alignment: .leading) {
                                 HStack {
                                     Image(systemName: "wave.3.right")
                                         .font(.system(size: 15))
-                                        .foregroundStyle(.secondary.opacity(0.6))
+                                        .foregroundStyle(Brand.blue.opacity(0.7))
                                     Spacer()
                                     Image(systemName: "creditcard")
                                         .font(.system(size: 16))
-                                        .foregroundStyle(.secondary.opacity(0.5))
+                                        .foregroundStyle(Brand.blue.opacity(0.6))
                                 }
                                 .padding(14)
                                 Spacer()
@@ -812,22 +809,22 @@ struct WalletCardView: View {
                             // Center Action Callout
                             VStack(spacing: 8) {
                                 Image(systemName: "photo.badge.plus")
-                                    .font(.system(size: 32))
-                                    .foregroundStyle(.blue)
+                                    .font(.system(size: 34, weight: .semibold))
+                                    .foregroundStyle(Brand.sweep)
 
                                 Text("Assign Card Skin")
-                                    .font(.subheadline.bold())
+                                    .font(.system(size: 15, weight: .heavy, design: .rounded))
                                     .foregroundStyle(.primary)
 
                                 Text("Tap to choose photo")
-                                    .font(.caption2)
+                                    .font(.system(size: 11, weight: .medium, design: .rounded))
                                     .foregroundStyle(.secondary)
                             }
                         }
                     }
                 }
                 .frame(width: width, height: height)
-                .shadow(color: .black.opacity(0.12), radius: 6, y: 3)
+                .shadow(color: Brand.violet.opacity(0.20), radius: 14, y: 6)
                 .contentShape(Rectangle())
                 .onTapGesture { onPickImage() }
             }
@@ -1226,36 +1223,33 @@ struct WalletCardsTab: View {
             }
 
             if !vm.cards.isEmpty {
-                VStack(spacing: 8) {
+                VStack(spacing: 10) {
                     Button {
                         activePicker = .bulkOriginal
                         showSourceDialog = true
                     } label: {
-                        HStack(spacing: 6) {
+                        HStack(spacing: 8) {
                             Image(systemName: "bookmark.circle.fill")
                             Text("Save Card Picture")
-                                .font(.system(size: 15, weight: .semibold))
                         }
-                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .brandPrimaryButton()
                     }
-                    .buttonStyle(.bordered)
-                    .tint(.blue)
+                    .buttonStyle(.plain)
 
                     Button {
                         showRestoreCardsConfirm = true
                     } label: {
-                        HStack(spacing: 6) {
+                        HStack(spacing: 8) {
                             Image(systemName: "arrow.uturn.backward.circle")
                             Text("Restore Stock Card Picture")
-                                .font(.system(size: 15, weight: .semibold))
                         }
-                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .brandSecondaryButton(tint: .orange)
                     }
-                    .buttonStyle(.bordered)
-                    .tint(.orange)
+                    .buttonStyle(.plain)
                     .disabled(!vm.canRestoreCardSkins)
+                    .opacity(vm.canRestoreCardSkins ? 1.0 : 0.5)
                 }
-                .padding(.top, 4)
+                .padding(.top, 6)
             }
 
             if !vm.cardFlashLog.isEmpty {
@@ -1275,47 +1269,60 @@ struct WalletCardsTab: View {
         Button {
             vm.flashCards()
         } label: {
-            HStack(spacing: 6) {
+            HStack(spacing: 5) {
                 if case .running = vm.cardFlashPhase {
                     ProgressView()
                         .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                        .scaleEffect(0.75)
+                        .scaleEffect(0.7)
                     Text("Flashing…")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: 13, weight: .heavy, design: .rounded))
                 } else if case .done(let ok) = vm.cardFlashPhase, !ok {
                     Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 12, weight: .heavy))
                     Text("Retry")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: 13, weight: .heavy, design: .rounded))
                 } else {
                     Image(systemName: "bolt.fill")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 11, weight: .heavy))
                     Text("Flash")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: 13, weight: .heavy, design: .rounded))
                 }
             }
-            .padding(.horizontal, 4)
-            .frame(minHeight: 28)
+            .foregroundStyle(.white)
+            .padding(.horizontal, 12)
+            .frame(minHeight: 30)
+            .background(
+                Group {
+                    if case .done(let ok) = vm.cardFlashPhase, !ok {
+                        LinearGradient(colors: [.orange, .red], startPoint: .topLeading, endPoint: .bottomTrailing)
+                    } else {
+                        Brand.sweep
+                    }
+                },
+                in: Capsule()
+            )
+            .shadow(color: Brand.blue.opacity(0.4), radius: 6, y: 2)
+            .opacity(vm.canFlashCards && vm.cardFlashPhase != .running ? 1.0 : 0.55)
         }
-        .buttonStyle(.borderedProminent)
-        .tint({
-            if case .done(let ok) = vm.cardFlashPhase, !ok {
-                return Color.orange
-            }
-            return Color.blue
-        }())
+        .buttonStyle(.plain)
         .disabled(!vm.canFlashCards || vm.cardFlashPhase == .running)
         .animation(.easeInOut(duration: 0.2), value: vm.cardFlashPhase)
     }
 
     private var walletEmptyState: some View {
         VStack(spacing: 18) {
-            Image(systemName: "creditcard.viewfinder")
-                .font(.system(size: 56))
-                .foregroundStyle(.blue.opacity(0.8))
+            ZStack {
+                Circle()
+                    .fill(Brand.sweep)
+                    .frame(width: 92, height: 92)
+                    .shadow(color: Brand.violet.opacity(0.35), radius: 18, y: 6)
+                Image(systemName: "creditcard.viewfinder")
+                    .font(.system(size: 40, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
 
             Text("No Cards Detected Yet")
-                .font(.title3.bold())
+                .font(.system(size: 22, weight: .heavy, design: .rounded))
 
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .top, spacing: 10) {
@@ -1348,34 +1355,38 @@ struct WalletCardsTab: View {
                 Button {
                     vm.toggleCardScanning()
                 } label: {
-                    HStack(spacing: 6) {
-                        Spacer()
+                    HStack(spacing: 8) {
                         Image(systemName: vm.isScanningCards ? "stop.circle.fill" : "wave.3.left.circle")
                         Text(vm.isScanningCards ? "Stop Scan" : "Scan Cards")
-                        Spacer()
                     }
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 48)
+                    .font(.system(size: 15, weight: .heavy, design: .rounded))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, minHeight: 48)
+                    .background(
+                        Group {
+                            if vm.isScanningCards {
+                                LinearGradient(colors: [.red, .orange], startPoint: .topLeading, endPoint: .bottomTrailing)
+                            } else {
+                                Brand.sweep
+                            }
+                        },
+                        in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    )
+                    .shadow(color: (vm.isScanningCards ? Color.red : Brand.blue).opacity(0.35), radius: 12, y: 5)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(vm.isScanningCards ? .red : .blue)
+                .buttonStyle(.plain)
                 .transaction { $0.animation = nil }
 
                 Button {
                     showAddSheet = true
                 } label: {
-                    HStack(spacing: 6) {
-                        Spacer()
+                    HStack(spacing: 8) {
                         Image(systemName: "plus")
                         Text("Add Manually")
-                        Spacer()
                     }
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 48)
+                    .brandSecondaryButton()
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.plain)
                 .transaction { $0.animation = nil }
             }
             .padding(.horizontal, 24)
@@ -1491,32 +1502,53 @@ struct ApplyThemeSection: View {
     var body: some View {
         // Themes dropped directly into Documents folder
         if !vm.documentsThemes.isEmpty {
-            Section("Themes in App Folder (On My iPhone › AirTweak)") {
+            Section {
                 ForEach(vm.documentsThemes, id: \.self) { file in
-                    HStack {
-                        Image(systemName: "paintpalette.fill")
-                            .foregroundStyle(.pink)
-                        Text(file)
-                            .font(.system(size: 13, design: .monospaced))
-                        Spacer()
-                        Button("Load") {
-                            vm.loadPassthmFromDocuments(filename: file)
+                    HStack(spacing: 12) {
+                        ZStack {
+                            Circle()
+                                .fill(Brand.sweep)
+                                .frame(width: 34, height: 34)
+                            Image(systemName: "paintpalette.fill")
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundStyle(.white)
                         }
-                        .font(.caption.bold())
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
+                        Text(file)
+                            .font(.system(size: 13, weight: .medium, design: .monospaced))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer()
+                        Button {
+                            vm.loadPassthmFromDocuments(filename: file)
+                        } label: {
+                            Text("Load")
+                                .font(.system(size: 12, weight: .heavy, design: .rounded))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(Brand.sweep, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
+            } header: {
+                Text("Themes in App Folder")
+                    .font(.system(size: 12, weight: .heavy, design: .rounded))
+                    .foregroundStyle(Brand.blue)
             }
         }
 
         Section {
-            VStack(alignment: .leading, spacing: 6) {
-                Label("How to load a theme", systemImage: "lightbulb.fill")
-                    .font(.caption.bold())
-                    .foregroundStyle(.orange)
-                Text("Open the Files app → On My iPhone → AirTweak, and drop your .passthm file there. It will appear in the list above with a Load button.")
-                    .font(.caption)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    Image(systemName: "lightbulb.fill")
+                        .foregroundStyle(Brand.cyan)
+                    Text("How to load a theme")
+                        .font(.system(size: 13, weight: .heavy, design: .rounded))
+                        .foregroundStyle(.primary)
+                }
+                Text("Open the Files app → On My iPhone → AirTweak, and drop your .passthm file there. It will show up above with a Load button.")
+                    .font(.system(size: 12, design: .rounded))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 Button {
@@ -1524,7 +1556,8 @@ struct ApplyThemeSection: View {
                     vm.passthmFlashLog = ["🔄 Rescanned app folder — \(vm.documentsThemes.count) theme(s) found."]
                 } label: {
                     Label("Refresh app folder", systemImage: "arrow.clockwise")
-                        .font(.caption)
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Brand.blue)
                 }
                 .buttonStyle(.borderless)
 
