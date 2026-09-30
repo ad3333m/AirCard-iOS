@@ -26,6 +26,17 @@ struct TendiesView: View {
     var body: some View {
         NavigationStack {
             Form {
+                // Hero header
+                Section {
+                    BrandHero(
+                        title: "Wallpapers",
+                        subtitle: "Import .tendies packs and flash them to your Lock & Home screens.",
+                        systemImage: "photo.on.rectangle.angled"
+                    )
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                }
+
                 // Notice Banners
                 if let err = vm.errorMessage {
                     Section {
@@ -197,10 +208,11 @@ struct TendiesView: View {
                     }
                 }
             }
+            .brandForm()
             .safeAreaInset(edge: .bottom) {
                 Color.clear.frame(height: 60)
             }
-            .navigationTitle("Wallpapers")
+            .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {

@@ -16,11 +16,16 @@ enum Brand {
     // Used to be `violet` — keep the alias so older references still compile.
     static let violet = navy
 
-    /// Deep navy → mid navy → cyan-blue diagonal sweep matching the icon.
+    /// Navy → cyan-blue diagonal sweep for buttons. Uses light-enough stops
+    /// on both ends so buttons stay visible over the dark app background.
     static let sweep = LinearGradient(
-        colors: [deepNavy, navy, blue],
-        startPoint: .topLeading,
-        endPoint: .bottomTrailing
+        colors: [
+            Color(red: 0x2A/255.0, green: 0x63/255.0, blue: 0xE0/255.0),
+            blue,
+            cyan
+        ],
+        startPoint: .leading,
+        endPoint: .trailing
     )
 
     /// Softer sweep for section backgrounds.
@@ -75,6 +80,59 @@ extension View {
     }
     func brandSecondaryButton(tint: Color = Brand.blue) -> some View {
         modifier(BrandSecondaryButton(tint: tint))
+    }
+
+    /// Transparent Form background + fresh section styling.
+    func brandForm() -> some View {
+        self
+            .scrollContentBackground(.hidden)
+            .background(Color.clear)
+    }
+}
+
+// MARK: - Hero header
+
+/// Big glass hero panel with the icon rings, a title, and a subtitle.
+struct BrandHero: View {
+    let title: String
+    let subtitle: String
+    let systemImage: String
+    var accent: Color = Brand.cyan
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 14) {
+            ZStack {
+                Circle().fill(accent.opacity(0.14)).frame(width: 58, height: 58)
+                Circle().stroke(accent.opacity(0.55), lineWidth: 1.5).frame(width: 58, height: 58)
+                Circle().stroke(accent.opacity(0.35), lineWidth: 1).frame(width: 44, height: 44)
+                Image(systemName: systemImage)
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(accent)
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 26, weight: .heavy, design: .rounded))
+                    .foregroundStyle(.white)
+                Text(subtitle)
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.6))
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .background(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(.ultraThinMaterial)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+        )
+        .padding(.horizontal, 14)
+        .padding(.top, 4)
     }
 }
 
@@ -427,39 +485,80 @@ struct DocumentPickerView: UIViewControllerRepresentable {
 struct ContentView: View {
     @EnvironmentObject var vm: AppViewModel
 
+    init() {
+        // Blur the tab bar and make it match the dark theme.
+        let tabAppearance = UITabBarAppearance()
+        tabAppearance.configureWithTransparentBackground()
+        tabAppearance.backgroundEffect = UIBlurEffect(style: .systemUltraThinMaterialDark)
+        tabAppearance.backgroundColor = UIColor(red: 0x0B/255.0, green: 0x1A/255.0, blue: 0x36/255.0, alpha: 0.85)
+
+        let accent = UIColor(red: 0x66/255.0, green: 0xD5/255.0, blue: 0xFF/255.0, alpha: 1)
+        let inactive = UIColor(red: 0xB8/255.0, green: 0xC5/255.0, blue: 0xE0/255.0, alpha: 0.55)
+        tabAppearance.stackedLayoutAppearance.selected.iconColor = accent
+        tabAppearance.stackedLayoutAppearance.selected.titleTextAttributes = [.foregroundColor: accent]
+        tabAppearance.stackedLayoutAppearance.normal.iconColor = inactive
+        tabAppearance.stackedLayoutAppearance.normal.titleTextAttributes = [.foregroundColor: inactive]
+        UITabBar.appearance().standardAppearance = tabAppearance
+        UITabBar.appearance().scrollEdgeAppearance = tabAppearance
+
+        // Transparent nav bars so our own hero shows through.
+        let navAppearance = UINavigationBarAppearance()
+        navAppearance.configureWithTransparentBackground()
+        navAppearance.titleTextAttributes = [.foregroundColor: UIColor.white]
+        navAppearance.largeTitleTextAttributes = [.foregroundColor: UIColor.white]
+        UINavigationBar.appearance().standardAppearance = navAppearance
+        UINavigationBar.appearance().scrollEdgeAppearance = navAppearance
+    }
+
     var body: some View {
-        TabView(selection: $vm.selectedTab) {
-            PairingTab()
-                .tabItem { Label("Pairing", systemImage: "antenna.radiowaves") }
-                .tag(AppTab.pairing)
+        ZStack {
+            // Global app background: deep navy → charcoal blue with an aura.
+            LinearGradient(
+                colors: [
+                    Color(red: 0x08/255.0, green: 0x0F/255.0, blue: 0x24/255.0),
+                    Color(red: 0x0F/255.0, green: 0x1B/255.0, blue: 0x36/255.0),
+                    Color(red: 0x14/255.0, green: 0x1F/255.0, blue: 0x40/255.0),
+                ],
+                startPoint: .top, endPoint: .bottom
+            )
+            .ignoresSafeArea()
 
-            WalletCardsTab()
-                .tabItem { Label("Cards", systemImage: "creditcard.and.123") }
-                .tag(AppTab.walletCards)
+            // Aurora blobs
+            GeometryReader { geo in
+                Circle()
+                    .fill(Brand.blue.opacity(0.25))
+                    .frame(width: geo.size.width * 0.9)
+                    .blur(radius: 90)
+                    .offset(x: -geo.size.width * 0.35, y: -geo.size.height * 0.10)
+                Circle()
+                    .fill(Brand.cyan.opacity(0.18))
+                    .frame(width: geo.size.width * 0.75)
+                    .blur(radius: 80)
+                    .offset(x: geo.size.width * 0.35, y: geo.size.height * 0.45)
+            }
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
 
-            PasscodeThemeTab()
-                .tabItem { Label("Passcode", systemImage: "lock.rectangle.stack.fill") }
-                .tag(AppTab.passcodeThemes)
+            TabView(selection: $vm.selectedTab) {
+                PairingTab()
+                    .tabItem { Label("Pairing", systemImage: "antenna.radiowaves.left.and.right") }
+                    .tag(AppTab.pairing)
 
-            TendiesView()
-                .tabItem { Label("Wallpapers", systemImage: "photo.on.rectangle.angled") }
-                .tag(AppTab.wallpapers)
+                WalletCardsTab()
+                    .tabItem { Label("Cards", systemImage: "creditcard.and.123") }
+                    .tag(AppTab.walletCards)
+
+                PasscodeThemeTab()
+                    .tabItem { Label("Passcode", systemImage: "lock.rectangle.stack.fill") }
+                    .tag(AppTab.passcodeThemes)
+
+                TendiesView()
+                    .tabItem { Label("Wallpapers", systemImage: "photo.on.rectangle.angled") }
+                    .tag(AppTab.wallpapers)
+            }
+            .tint(Brand.cyan)
         }
-        .tint(Brand.blue)
-        // Brand build badge, pill-shaped with the icon's sweep.
-        .overlay(alignment: .topTrailing) {
-            Text("v2.5")
-                .font(.system(size: 10, weight: .heavy, design: .rounded))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(Brand.sweep, in: Capsule())
-                .overlay(Capsule().strokeBorder(Color.white.opacity(0.25), lineWidth: 0.5))
-                .shadow(color: Brand.violet.opacity(0.4), radius: 6, y: 2)
-                .padding(.trailing, 10)
-                .padding(.top, 6)
-                .allowsHitTesting(false)
-        }
+        .preferredColorScheme(.dark)
         .alert("Notice", isPresented: Binding(
             get: { vm.errorMessage != nil },
             set: { if !$0 { vm.errorMessage = nil } }
@@ -495,28 +594,15 @@ struct PairingTab: View {
     var body: some View {
         NavigationStack {
             Form {
-                // Header
+                // Hero header
                 Section {
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "creditcard.circle.fill")
-                                .font(.title2)
-                                .foregroundStyle(.blue)
-                            Text("AirCard-iOS")
-                                .font(.title2.bold())
-                            Spacer()
-                            Text("iOS \(ProcessInfo.processInfo.operatingSystemVersion.majorVersion) · v1.3")
-                                .font(.caption.monospaced().bold())
-                                .padding(.horizontal, 8).padding(.vertical, 3)
-                                .background(Color.blue.opacity(0.12))
-                                .foregroundStyle(.blue)
-                                .clipShape(Capsule())
-                        }
-                        Text("Apply custom wallet card skins and passcode themes on-device using the AirTraffic sandbox escape.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.vertical, 4)
+                    BrandHero(
+                        title: "AirTweak",
+                        subtitle: "Wallet card skins, passcode themes & Home Screen tendies — all on-device.",
+                        systemImage: "wave.3.right"
+                    )
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
                 }
 
                 // Network / VPN Status
@@ -683,10 +769,11 @@ struct PairingTab: View {
                     }
                 }
             }
+            .brandForm()
             .safeAreaInset(edge: .bottom) {
                 Color.clear.frame(height: 60)
             }
-            .navigationTitle("AirCard-iOS")
+            .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -1031,24 +1118,29 @@ struct WalletCardsTab: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
+                    BrandHero(
+                        title: "Wallet Cards",
+                        subtitle: "\(vm.cards.count) card\(vm.cards.count == 1 ? "" : "s") — flash custom skins, then restore whenever.",
+                        systemImage: "creditcard.and.123"
+                    )
                     scannerBanner
 
                     if vm.cards.isEmpty {
                         walletEmptyState
-                            .padding(.top, 40)
+                            .padding(.top, 30)
                     } else {
                         cardsList
                     }
                 }
-                .padding(.vertical)
+                .padding(.vertical, 4)
                 .transaction { $0.animation = nil }
             }
             .transaction { $0.animation = nil }
             .safeAreaInset(edge: .bottom) {
                 Color.clear.frame(height: 60)
             }
-            .background(Color(uiColor: .systemGroupedBackground))
-            .navigationTitle("Wallet Cards (\(vm.cards.count))")
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button {
@@ -1524,6 +1616,17 @@ struct PasscodeThemeTab: View {
     var body: some View {
         NavigationStack {
             Form {
+                // Hero header
+                Section {
+                    BrandHero(
+                        title: "Passcode",
+                        subtitle: "Apply themed keypad art or design one from scratch.",
+                        systemImage: "lock.rectangle.stack.fill"
+                    )
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                }
+
                 // Mode picker
                 Section {
                     Picker("Mode", selection: $vm.passcodeMode) {
@@ -1551,10 +1654,12 @@ struct PasscodeThemeTab: View {
                     }
                 }
             }
+            .brandForm()
             .safeAreaInset(edge: .bottom) {
                 Color.clear.frame(height: 60)
             }
-            .navigationTitle("Passcode Theme")
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
