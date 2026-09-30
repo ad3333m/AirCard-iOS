@@ -29,7 +29,6 @@ struct TendiesView: View {
                 // Hero header
                 Section {
                     BrandHero(
-                        title: "Wallpapers",
                         subtitle: "Import .tendies packs and flash them to your Lock & Home screens.",
                         systemImage: "photo.on.rectangle.angled"
                     )
@@ -212,8 +211,8 @@ struct TendiesView: View {
             .safeAreaInset(edge: .bottom) {
                 Color.clear.frame(height: 60)
             }
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("Wallpapers")
+            .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {

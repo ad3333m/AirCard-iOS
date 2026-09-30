@@ -3,6 +3,17 @@ import UIKit
 import PhotosUI
 import UniformTypeIdentifiers
 
+// MARK: - UIFont helper
+
+extension UIFont {
+    /// Returns a rounded-design version of self when the platform provides it,
+    /// otherwise the original font.
+    func roundedIfPossible() -> UIFont {
+        guard let desc = self.fontDescriptor.withDesign(.rounded) else { return self }
+        return UIFont(descriptor: desc, size: self.pointSize)
+    }
+}
+
 // MARK: - Brand palette
 
 /// Brand colors mirror the AirTweak app icon: dark navy → cyan.
@@ -92,34 +103,28 @@ extension View {
 
 // MARK: - Hero header
 
-/// Big glass hero panel with the icon rings, a title, and a subtitle.
+/// Glass hero panel with animated rings + tagline. Sits below the nav bar's
+/// large title (which shows the tab name itself in rounded heavy white).
 struct BrandHero: View {
-    let title: String
     let subtitle: String
     let systemImage: String
     var accent: Color = Brand.cyan
 
+    @State private var pulse: CGFloat = 0
+    @State private var appeared = false
+
     var body: some View {
         HStack(alignment: .center, spacing: 14) {
-            ZStack {
-                Circle().fill(accent.opacity(0.14)).frame(width: 58, height: 58)
-                Circle().stroke(accent.opacity(0.55), lineWidth: 1.5).frame(width: 58, height: 58)
-                Circle().stroke(accent.opacity(0.35), lineWidth: 1).frame(width: 44, height: 44)
-                Image(systemName: systemImage)
-                    .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(accent)
-            }
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.system(size: 26, weight: .heavy, design: .rounded))
-                    .foregroundStyle(.white)
-                Text(subtitle)
-                    .font(.system(size: 12, weight: .medium, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.6))
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer()
+            AnimatedRings(systemImage: systemImage, accent: accent)
+                .frame(width: 62, height: 62)
+
+            Text(subtitle)
+                .font(.system(size: 13, weight: .medium, design: .rounded))
+                .foregroundStyle(.white.opacity(0.75))
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Spacer(minLength: 0)
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
@@ -129,10 +134,77 @@ struct BrandHero: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+                .strokeBorder(
+                    LinearGradient(
+                        colors: [accent.opacity(0.55), accent.opacity(0.05)],
+                        startPoint: .topLeading, endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 1
+                )
         )
+        .shadow(color: accent.opacity(0.15), radius: 20, y: 8)
         .padding(.horizontal, 14)
         .padding(.top, 4)
+        .opacity(appeared ? 1 : 0)
+        .offset(y: appeared ? 0 : 14)
+        .onAppear {
+            withAnimation(.easeOut(duration: 0.55)) { appeared = true }
+        }
+    }
+}
+
+/// The rings glyph, but the outermost ring gently pulses and the middle ring
+/// counter-rotates faintly for a "live" feel.
+struct AnimatedRings: View {
+    let systemImage: String
+    var accent: Color = Brand.cyan
+
+    @State private var pulseScale: CGFloat = 1.0
+    @State private var pulseOpacity: Double = 0.55
+    @State private var rotation: Double = 0
+
+    var body: some View {
+        ZStack {
+            // Outer pulsing ring
+            Circle()
+                .stroke(accent.opacity(pulseOpacity), lineWidth: 1.5)
+                .scaleEffect(pulseScale)
+            // Inner slowly rotating dashed ring
+            Circle()
+                .strokeBorder(
+                    accent.opacity(0.35),
+                    style: StrokeStyle(lineWidth: 1, dash: [4, 6])
+                )
+                .frame(width: 44, height: 44)
+                .rotationEffect(.degrees(rotation))
+            // Filled dot behind icon
+            Circle().fill(accent.opacity(0.14))
+                .frame(width: 44, height: 44)
+
+            Image(systemName: systemImage)
+                .font(.system(size: 20, weight: .bold))
+                .foregroundStyle(accent)
+        }
+        .onAppear {
+            withAnimation(.easeInOut(duration: 1.8).repeatForever(autoreverses: true)) {
+                pulseScale = 1.15
+                pulseOpacity = 0.15
+            }
+            withAnimation(.linear(duration: 22).repeatForever(autoreverses: false)) {
+                rotation = 360
+            }
+        }
+    }
+}
+
+// MARK: - Springy button style
+
+/// Adds a satisfying scale + haptic on press to any button.
+struct SpringPressButton: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.96 : 1.0)
+            .animation(.spring(response: 0.28, dampingFraction: 0.55), value: configuration.isPressed)
     }
 }
 
@@ -501,14 +573,25 @@ struct ContentView: View {
         UITabBar.appearance().standardAppearance = tabAppearance
         UITabBar.appearance().scrollEdgeAppearance = tabAppearance
 
-        // Transparent nav bars so our own hero shows through.
+        // Transparent nav bars so our own hero shows through, with a rounded
+        // heavy title in white/cyan.
         let navAppearance = UINavigationBarAppearance()
         navAppearance.configureWithTransparentBackground()
-        navAppearance.titleTextAttributes = [.foregroundColor: UIColor.white]
-        navAppearance.largeTitleTextAttributes = [.foregroundColor: UIColor.white]
+        let roundedInline = UIFont.systemFont(ofSize: 17, weight: .heavy).roundedIfPossible()
+        let roundedLarge = UIFont.systemFont(ofSize: 34, weight: .heavy).roundedIfPossible()
+        navAppearance.titleTextAttributes = [
+            .foregroundColor: UIColor.white,
+            .font: roundedInline
+        ]
+        navAppearance.largeTitleTextAttributes = [
+            .foregroundColor: UIColor.white,
+            .font: roundedLarge
+        ]
         UINavigationBar.appearance().standardAppearance = navAppearance
         UINavigationBar.appearance().scrollEdgeAppearance = navAppearance
     }
+
+    @State private var auroraShift: CGFloat = 0
 
     var body: some View {
         ZStack {
@@ -523,21 +606,40 @@ struct ContentView: View {
             )
             .ignoresSafeArea()
 
-            // Aurora blobs
+            // Drifting aurora blobs
             GeometryReader { geo in
                 Circle()
-                    .fill(Brand.blue.opacity(0.25))
+                    .fill(Brand.blue.opacity(0.28))
                     .frame(width: geo.size.width * 0.9)
                     .blur(radius: 90)
-                    .offset(x: -geo.size.width * 0.35, y: -geo.size.height * 0.10)
+                    .offset(
+                        x: -geo.size.width * 0.35 + auroraShift * 40,
+                        y: -geo.size.height * 0.10 - auroraShift * 24
+                    )
                 Circle()
-                    .fill(Brand.cyan.opacity(0.18))
+                    .fill(Brand.cyan.opacity(0.20))
                     .frame(width: geo.size.width * 0.75)
                     .blur(radius: 80)
-                    .offset(x: geo.size.width * 0.35, y: geo.size.height * 0.45)
+                    .offset(
+                        x: geo.size.width * 0.35 - auroraShift * 30,
+                        y: geo.size.height * 0.45 + auroraShift * 20
+                    )
+                Circle()
+                    .fill(Color(red: 0x7C/255.0, green: 0x4D/255.0, blue: 0xFF/255.0).opacity(0.12))
+                    .frame(width: geo.size.width * 0.5)
+                    .blur(radius: 70)
+                    .offset(
+                        x: -geo.size.width * 0.10 + auroraShift * 50,
+                        y: geo.size.height * 0.10 + auroraShift * 45
+                    )
             }
             .ignoresSafeArea()
             .allowsHitTesting(false)
+            .onAppear {
+                withAnimation(.easeInOut(duration: 9).repeatForever(autoreverses: true)) {
+                    auroraShift = 1.0
+                }
+            }
 
             TabView(selection: $vm.selectedTab) {
                 PairingTab()
@@ -597,9 +699,8 @@ struct PairingTab: View {
                 // Hero header
                 Section {
                     BrandHero(
-                        title: "AirTweak",
                         subtitle: "Wallet card skins, passcode themes & Home Screen tendies — all on-device.",
-                        systemImage: "wave.3.right"
+                        systemImage: "antenna.radiowaves.left.and.right"
                     )
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
@@ -773,8 +874,8 @@ struct PairingTab: View {
             .safeAreaInset(edge: .bottom) {
                 Color.clear.frame(height: 60)
             }
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("Pairing")
+            .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
@@ -1119,7 +1220,6 @@ struct WalletCardsTab: View {
             ScrollView {
                 VStack(spacing: 16) {
                     BrandHero(
-                        title: "Wallet Cards",
                         subtitle: "\(vm.cards.count) card\(vm.cards.count == 1 ? "" : "s") — flash custom skins, then restore whenever.",
                         systemImage: "creditcard.and.123"
                     )
@@ -1139,8 +1239,8 @@ struct WalletCardsTab: View {
             .safeAreaInset(edge: .bottom) {
                 Color.clear.frame(height: 60)
             }
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("Cards")
+            .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button {
@@ -1401,7 +1501,7 @@ struct WalletCardsTab: View {
                         }
                         .brandPrimaryButton()
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(SpringPressButton())
 
                     Button {
                         showRestoreCardsConfirm = true
@@ -1412,11 +1512,12 @@ struct WalletCardsTab: View {
                         }
                         .brandSecondaryButton(tint: .orange)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(SpringPressButton())
                     .disabled(!vm.canRestoreCardSkins)
                     .opacity(vm.canRestoreCardSkins ? 1.0 : 0.5)
                 }
                 .padding(.top, 6)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
 
             if !vm.cardFlashLog.isEmpty {
@@ -1462,9 +1563,9 @@ struct WalletCardsTab: View {
             .shadow(color: Brand.blue.opacity(0.4), radius: 6, y: 2)
             .opacity(vm.canFlashCards && vm.cardFlashPhase != .running ? 1.0 : 0.55)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(SpringPressButton())
         .disabled(!vm.canFlashCards || vm.cardFlashPhase == .running)
-        .animation(.easeInOut(duration: 0.2), value: vm.cardFlashPhase)
+        .animation(.spring(response: 0.35, dampingFraction: 0.65), value: vm.cardFlashPhase)
     }
 
     private var flashBackground: AnyShapeStyle {
@@ -1545,8 +1646,7 @@ struct WalletCardsTab: View {
                     .background(scanButtonBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .shadow(color: (vm.isScanningCards ? Color.red : Brand.blue).opacity(0.35), radius: 12, y: 5)
                 }
-                .buttonStyle(.plain)
-                .transaction { $0.animation = nil }
+                .buttonStyle(SpringPressButton())
 
                 Button {
                     showAddSheet = true
@@ -1557,8 +1657,7 @@ struct WalletCardsTab: View {
                     }
                     .brandSecondaryButton()
                 }
-                .buttonStyle(.plain)
-                .transaction { $0.animation = nil }
+                .buttonStyle(SpringPressButton())
             }
             .padding(.horizontal, 24)
             .transaction { $0.animation = nil }
@@ -1619,7 +1718,6 @@ struct PasscodeThemeTab: View {
                 // Hero header
                 Section {
                     BrandHero(
-                        title: "Passcode",
                         subtitle: "Apply themed keypad art or design one from scratch.",
                         systemImage: "lock.rectangle.stack.fill"
                     )
@@ -1658,8 +1756,8 @@ struct PasscodeThemeTab: View {
             .safeAreaInset(edge: .bottom) {
                 Color.clear.frame(height: 60)
             }
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("Passcode")
+            .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
