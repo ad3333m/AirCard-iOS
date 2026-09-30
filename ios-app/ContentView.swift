@@ -5,22 +5,29 @@ import UniformTypeIdentifiers
 
 // MARK: - Brand palette
 
-/// Brand colors mirror the AirTweak app icon.
+/// Brand colors mirror the AirTweak app icon: dark navy → cyan.
 enum Brand {
-    static let violet = Color(red: 0x7C/255.0, green: 0x4D/255.0, blue: 0xFF/255.0)
-    static let blue   = Color(red: 0x35/255.0, green: 0x8C/255.0, blue: 0xFF/255.0)
-    static let cyan   = Color(red: 0x1E/255.0, green: 0xE0/255.0, blue: 0xD0/255.0)
+    static let deepNavy = Color(red: 0x0B/255.0, green: 0x1A/255.0, blue: 0x36/255.0)
+    static let navy     = Color(red: 0x21/255.0, green: 0x4B/255.0, blue: 0x8E/255.0)
+    static let blue     = Color(red: 0x2E/255.0, green: 0xA8/255.0, blue: 0xFF/255.0)
+    static let cyan     = Color(red: 0x66/255.0, green: 0xD5/255.0, blue: 0xFF/255.0)
+    static let ice      = Color(red: 0xB8/255.0, green: 0xF0/255.0, blue: 0xFF/255.0)
 
+    // Used to be `violet` — keep the alias so older references still compile.
+    static let violet = navy
+
+    /// Deep navy → mid navy → cyan-blue diagonal sweep matching the icon.
     static let sweep = LinearGradient(
-        colors: [violet, blue, cyan],
+        colors: [deepNavy, navy, blue],
         startPoint: .topLeading,
         endPoint: .bottomTrailing
     )
 
+    /// Softer sweep for section backgrounds.
     static let softSweep = LinearGradient(
         colors: [
-            violet.opacity(0.18),
-            blue.opacity(0.14),
+            navy.opacity(0.22),
+            blue.opacity(0.16),
             cyan.opacity(0.12)
         ],
         startPoint: .topLeading,
@@ -441,7 +448,7 @@ struct ContentView: View {
         .tint(Brand.blue)
         // Brand build badge, pill-shaped with the icon's sweep.
         .overlay(alignment: .topTrailing) {
-            Text("v2.4")
+            Text("v2.5")
                 .font(.system(size: 10, weight: .heavy, design: .rounded))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 8)
