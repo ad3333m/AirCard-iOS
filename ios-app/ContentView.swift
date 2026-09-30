@@ -3,6 +3,74 @@ import UIKit
 import PhotosUI
 import UniformTypeIdentifiers
 
+// MARK: - Brand palette
+
+/// Brand colors mirror the AirTweak app icon.
+enum Brand {
+    static let violet = Color(red: 0x7C/255.0, green: 0x4D/255.0, blue: 0xFF/255.0)
+    static let blue   = Color(red: 0x35/255.0, green: 0x8C/255.0, blue: 0xFF/255.0)
+    static let cyan   = Color(red: 0x1E/255.0, green: 0xE0/255.0, blue: 0xD0/255.0)
+
+    static let sweep = LinearGradient(
+        colors: [violet, blue, cyan],
+        startPoint: .topLeading,
+        endPoint: .bottomTrailing
+    )
+
+    static let softSweep = LinearGradient(
+        colors: [
+            violet.opacity(0.18),
+            blue.opacity(0.14),
+            cyan.opacity(0.12)
+        ],
+        startPoint: .topLeading,
+        endPoint: .bottomTrailing
+    )
+}
+
+struct BrandPrimaryButton: ViewModifier {
+    var enabled: Bool = true
+    func body(content: Content) -> some View {
+        let bg: AnyShapeStyle = enabled
+            ? AnyShapeStyle(Brand.sweep)
+            : AnyShapeStyle(Color.gray.opacity(0.35))
+        return content
+            .font(.system(size: 15, weight: .semibold, design: .rounded))
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity, minHeight: 48)
+            .background(bg, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .shadow(color: enabled ? Brand.blue.opacity(0.35) : .clear,
+                    radius: 14, x: 0, y: 6)
+    }
+}
+
+struct BrandSecondaryButton: ViewModifier {
+    var tint: Color = Brand.blue
+    func body(content: Content) -> some View {
+        content
+            .font(.system(size: 14, weight: .semibold, design: .rounded))
+            .foregroundStyle(tint)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(tint.opacity(0.10))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(tint.opacity(0.35), lineWidth: 1)
+            )
+    }
+}
+
+extension View {
+    func brandPrimaryButton(enabled: Bool = true) -> some View {
+        modifier(BrandPrimaryButton(enabled: enabled))
+    }
+    func brandSecondaryButton(tint: Color = Brand.blue) -> some View {
+        modifier(BrandSecondaryButton(tint: tint))
+    }
+}
+
 // MARK: - Shared helpers
 
 func logLineColor(_ line: String) -> Color {
@@ -1291,22 +1359,35 @@ struct WalletCardsTab: View {
             .foregroundStyle(.white)
             .padding(.horizontal, 12)
             .frame(minHeight: 30)
-            .background(
-                Group {
-                    if case .done(let ok) = vm.cardFlashPhase, !ok {
-                        LinearGradient(colors: [.orange, .red], startPoint: .topLeading, endPoint: .bottomTrailing)
-                    } else {
-                        Brand.sweep
-                    }
-                },
-                in: Capsule()
-            )
+            .background(flashBackground, in: Capsule())
             .shadow(color: Brand.blue.opacity(0.4), radius: 6, y: 2)
             .opacity(vm.canFlashCards && vm.cardFlashPhase != .running ? 1.0 : 0.55)
         }
         .buttonStyle(.plain)
         .disabled(!vm.canFlashCards || vm.cardFlashPhase == .running)
         .animation(.easeInOut(duration: 0.2), value: vm.cardFlashPhase)
+    }
+
+    private var flashBackground: AnyShapeStyle {
+        if case .done(let ok) = vm.cardFlashPhase, !ok {
+            return AnyShapeStyle(LinearGradient(
+                colors: [.orange, .red],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            ))
+        }
+        return AnyShapeStyle(Brand.sweep)
+    }
+
+    private var scanButtonBackground: AnyShapeStyle {
+        if vm.isScanningCards {
+            return AnyShapeStyle(LinearGradient(
+                colors: [.red, .orange],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            ))
+        }
+        return AnyShapeStyle(Brand.sweep)
     }
 
     private var walletEmptyState: some View {
@@ -1362,16 +1443,7 @@ struct WalletCardsTab: View {
                     .font(.system(size: 15, weight: .heavy, design: .rounded))
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity, minHeight: 48)
-                    .background(
-                        Group {
-                            if vm.isScanningCards {
-                                LinearGradient(colors: [.red, .orange], startPoint: .topLeading, endPoint: .bottomTrailing)
-                            } else {
-                                Brand.sweep
-                            }
-                        },
-                        in: RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    )
+                    .background(scanButtonBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .shadow(color: (vm.isScanningCards ? Color.red : Brand.blue).opacity(0.35), radius: 12, y: 5)
                 }
                 .buttonStyle(.plain)
