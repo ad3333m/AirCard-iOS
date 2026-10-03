@@ -14,6 +14,7 @@ struct TendiesView: View {
     @State private var showFilePicker = false
     @State private var selectedDetailItem: TendieItem? = nil
     @State private var isNeoSpringing = false
+    @State private var showSettings = false
 
     private var selectedCount: Int {
         vm.tendieItems.filter { $0.isSelected }.count
@@ -214,6 +215,7 @@ struct TendiesView: View {
             .navigationTitle("Wallpapers")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
+                SettingsGearToolbar(showSettings: $showSettings)
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
                         showFilePicker = true
@@ -222,6 +224,9 @@ struct TendiesView: View {
                             .font(.headline)
                     }
                 }
+            }
+            .sheet(isPresented: $showSettings) {
+                SettingsSheet().environmentObject(vm)
             }
             .sheet(isPresented: $showFilePicker) {
                 TendiesDocumentPickerView { urls in

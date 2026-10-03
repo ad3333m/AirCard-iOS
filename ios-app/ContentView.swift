@@ -197,6 +197,288 @@ struct AnimatedRings: View {
     }
 }
 
+// MARK: - Settings sheet (shared across all tabs)
+
+/// Settings panel accessible from every tab's top-left gear button.
+/// Houses the per-card "Original Image" picker (moved out of the Cards tab).
+struct SettingsSheet: View {
+    @EnvironmentObject var vm: AppViewModel
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var activePickerCardId: String? = nil
+    @State private var showPhotos = false
+    @State private var showFiles  = false
+    @State private var showSourceDialog = false
+    @State private var selectedPhotos: [PhotosPickerItem] = []
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    BrandHero(
+                        subtitle: "Store a copy of each card's original artwork so Restore can bring it back later.",
+                        systemImage: "gearshape.2.fill"
+                    )
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                }
+
+                Section("Original Card Pictures") {
+                    if vm.cards.isEmpty {
+                        Text("No cards yet — scan one in the Cards tab first.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(vm.cards, id: \.id) { card in
+                            HStack(spacing: 12) {
+                                ZStack {
+                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .fill(Color.white.opacity(0.08))
+                                        .frame(width: 54, height: 34)
+                                    if let img = card.originalUIImage {
+                                        Image(uiImage: img)
+                                            .resizable()
+                                            .scaledToFill()
+                                            .frame(width: 54, height: 34)
+                                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                    } else {
+                                        Image(systemName: "photo")
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(card.id.prefix(8) + "…" + card.id.suffix(6))
+                                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                                    Text(card.originalUIImage != nil ? "Original saved" : "No original saved")
+                                        .font(.caption2)
+                                        .foregroundStyle(card.originalUIImage != nil ? .green : .secondary)
+                                }
+                                Spacer()
+                                Button {
+                                    activePickerCardId = card.id
+                                    showSourceDialog = true
+                                } label: {
+                                    Text(card.originalUIImage == nil ? "Set" : "Change")
+                                        .font(.caption.bold())
+                                        .foregroundStyle(.white)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 5)
+                                        .background(Brand.sweep, in: Capsule())
+                                }
+                                .buttonStyle(SpringPressButton())
+                                if card.originalUIImage != nil {
+                                    Button(role: .destructive) {
+                                        vm.clearCardOriginalImage(for: card.id)
+                                    } label: {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .brandForm()
+            .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") { dismiss() }
+                        .foregroundStyle(Brand.cyan)
+                        .font(.body.weight(.semibold))
+                }
+            }
+            .confirmationDialog("Choose Image Source", isPresented: $showSourceDialog, titleVisibility: .visible) {
+                Button {
+                    showPhotos = true
+                } label: {
+                    Label("Photo Library", systemImage: "photo.on.rectangle")
+                }
+                Button {
+                    showFiles = true
+                } label: {
+                    Label("Choose from Files…", systemImage: "folder")
+                }
+                Button("Cancel", role: .cancel) {
+                    activePickerCardId = nil
+                }
+            }
+            .photosPicker(
+                isPresented: $showPhotos,
+                selection: $selectedPhotos,
+                maxSelectionCount: 1,
+                matching: .images
+            )
+            .onChange(of: selectedPhotos) { _, items in
+                guard let item = items.first, let cid = activePickerCardId else {
+                    if items.isEmpty { activePickerCardId = nil }
+                    return
+                }
+                let targetId = cid
+                Task {
+                    if let image = await item.loadUIImage(maxDimension: 2560) {
+                        await MainActor.run {
+                            vm.setCardOriginalImage(for: targetId, image: image)
+                        }
+                    }
+                    await MainActor.run {
+                        selectedPhotos = []
+                        activePickerCardId = nil
+                    }
+                }
+            }
+            .sheet(isPresented: $showFiles) {
+                DocumentPickerView(allowedContentTypes: [
+                    .image, .png, .jpeg, .heic,
+                    UTType(filenameExtension: "webp") ?? .image,
+                    UTType(filenameExtension: "tiff") ?? .image
+                ]) { url in
+                    guard let cid = activePickerCardId else { return }
+                    if let data = try? Data(contentsOf: url),
+                       let image = ImageEngine.safeImageFromData(data, maxDimension: 2560) {
+                        vm.setCardOriginalImage(for: cid, image: image)
+                    }
+                    activePickerCardId = nil
+                }
+            }
+        }
+    }
+}
+
+/// Reusable top-left settings gear toolbar item. Add to every tab's `.toolbar`.
+struct SettingsGearToolbar: ToolbarContent {
+    @Binding var showSettings: Bool
+    var body: some ToolbarContent {
+        ToolbarItem(placement: .navigationBarLeading) {
+            Button {
+                showSettings = true
+            } label: {
+                Image(systemName: "gearshape.fill")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Brand.cyan)
+                    .padding(8)
+                    .background(Circle().fill(Color.white.opacity(0.08)))
+            }
+        }
+    }
+}
+
+// MARK: - Card picture presets
+
+/// Built-in abstract gradient card pictures. Shown in the per-card dropdown
+/// as a grid of unlabeled thumbnails so the user can pick one in a tap.
+enum CardPresets {
+    struct Preset: Identifiable, Equatable {
+        let id: Int
+        let colors: [UIColor]
+        let style: Style
+    }
+
+    enum Style { case diagonal, radial, stripes, waves, mesh }
+
+    static let all: [Preset] = [
+        Preset(id: 1,  colors: [UIColor(red: 0.49, green: 0.30, blue: 1.00, alpha: 1), UIColor(red: 0.12, green: 0.88, blue: 0.82, alpha: 1)], style: .diagonal),
+        Preset(id: 2,  colors: [UIColor(red: 1.00, green: 0.29, blue: 0.56, alpha: 1), UIColor(red: 1.00, green: 0.75, blue: 0.29, alpha: 1)], style: .diagonal),
+        Preset(id: 3,  colors: [UIColor(red: 0.00, green: 0.75, blue: 1.00, alpha: 1), UIColor(red: 0.72, green: 1.00, blue: 0.97, alpha: 1)], style: .radial),
+        Preset(id: 4,  colors: [UIColor(red: 0.05, green: 0.05, blue: 0.15, alpha: 1), UIColor(red: 0.00, green: 1.00, blue: 0.78, alpha: 1)], style: .radial),
+        Preset(id: 5,  colors: [UIColor(red: 1.00, green: 0.33, blue: 0.33, alpha: 1), UIColor(red: 0.52, green: 0.00, blue: 0.80, alpha: 1)], style: .diagonal),
+        Preset(id: 6,  colors: [UIColor(red: 0.17, green: 0.24, blue: 0.56, alpha: 1), UIColor(red: 0.98, green: 0.57, blue: 0.14, alpha: 1)], style: .stripes),
+        Preset(id: 7,  colors: [UIColor(red: 0.05, green: 0.49, blue: 0.76, alpha: 1), UIColor(red: 0.00, green: 0.18, blue: 0.35, alpha: 1)], style: .waves),
+        Preset(id: 8,  colors: [UIColor(red: 0.17, green: 0.80, blue: 0.44, alpha: 1), UIColor(red: 0.00, green: 0.28, blue: 0.17, alpha: 1)], style: .mesh),
+        Preset(id: 9,  colors: [UIColor(red: 0.95, green: 0.95, blue: 0.95, alpha: 1), UIColor(red: 0.75, green: 0.75, blue: 0.80, alpha: 1)], style: .diagonal),
+        Preset(id: 10, colors: [UIColor(red: 0.08, green: 0.08, blue: 0.10, alpha: 1), UIColor(red: 0.42, green: 0.42, blue: 0.48, alpha: 1)], style: .diagonal),
+        Preset(id: 11, colors: [UIColor(red: 0.86, green: 0.07, blue: 0.24, alpha: 1), UIColor(red: 0.20, green: 0.02, blue: 0.05, alpha: 1)], style: .radial),
+        Preset(id: 12, colors: [UIColor(red: 0.98, green: 0.74, blue: 0.02, alpha: 1), UIColor(red: 0.58, green: 0.35, blue: 0.00, alpha: 1)], style: .diagonal),
+    ]
+
+    /// Render a preset at the given size. Cached in-memory per (id, size) so
+    /// repeated tile renders don't thrash the CPU.
+    private static var cache: [String: UIImage] = [:]
+
+    static func render(_ preset: Preset, size: CGSize) -> UIImage {
+        let key = "\(preset.id)@\(Int(size.width))x\(Int(size.height))"
+        if let cached = cache[key] { return cached }
+
+        let fmt = UIGraphicsImageRendererFormat()
+        fmt.scale = 1
+        fmt.opaque = true
+        let r = UIGraphicsImageRenderer(size: size, format: fmt)
+        let img = r.image { ctx in
+            let rect = CGRect(origin: .zero, size: size)
+            let cg = ctx.cgContext
+            let cs = CGColorSpaceCreateDeviceRGB()
+            let cs2 = preset.colors.map { $0.cgColor }
+            switch preset.style {
+            case .diagonal:
+                let g = CGGradient(colorsSpace: cs, colors: cs2 as CFArray, locations: [0, 1])!
+                cg.drawLinearGradient(g, start: .zero, end: CGPoint(x: size.width, y: size.height), options: [])
+            case .radial:
+                let g = CGGradient(colorsSpace: cs, colors: cs2 as CFArray, locations: [0, 1])!
+                let c = CGPoint(x: size.width * 0.35, y: size.height * 0.3)
+                cg.drawRadialGradient(g, startCenter: c, startRadius: 0,
+                                      endCenter: CGPoint(x: size.width/2, y: size.height/2),
+                                      endRadius: max(size.width, size.height), options: [])
+            case .stripes:
+                let g = CGGradient(colorsSpace: cs, colors: cs2 as CFArray, locations: [0, 1])!
+                cg.drawLinearGradient(g, start: .zero, end: CGPoint(x: size.width, y: 0), options: [])
+                cg.setFillColor(UIColor.white.withAlphaComponent(0.08).cgColor)
+                var y: CGFloat = -size.height
+                while y < size.height {
+                    cg.saveGState()
+                    cg.translateBy(x: size.width/2, y: size.height/2)
+                    cg.rotate(by: -.pi / 6)
+                    cg.translateBy(x: -size.width/2, y: -size.height/2)
+                    cg.fill(CGRect(x: 0, y: y, width: size.width, height: 24))
+                    cg.restoreGState()
+                    y += 60
+                }
+            case .waves:
+                let g = CGGradient(colorsSpace: cs, colors: cs2 as CFArray, locations: [0, 1])!
+                cg.drawLinearGradient(g, start: .zero, end: CGPoint(x: 0, y: size.height), options: [])
+                cg.setStrokeColor(UIColor.white.withAlphaComponent(0.14).cgColor)
+                cg.setLineWidth(3)
+                for i in 0..<6 {
+                    let path = CGMutablePath()
+                    let y = size.height * CGFloat(i) / 5
+                    path.move(to: CGPoint(x: 0, y: y))
+                    var x: CGFloat = 0
+                    while x < size.width {
+                        path.addQuadCurve(to: CGPoint(x: x+80, y: y),
+                                          control: CGPoint(x: x+40, y: y - 30))
+                        x += 80
+                    }
+                    cg.addPath(path)
+                    cg.strokePath()
+                }
+            case .mesh:
+                let g = CGGradient(colorsSpace: cs, colors: cs2 as CFArray, locations: [0, 1])!
+                cg.drawLinearGradient(g, start: .zero, end: CGPoint(x: size.width, y: size.height), options: [])
+                cg.setFillColor(UIColor.white.withAlphaComponent(0.06).cgColor)
+                let step: CGFloat = 36
+                var y: CGFloat = 0
+                while y < size.height {
+                    var x: CGFloat = (Int(y / step) % 2 == 0) ? 0 : step/2
+                    while x < size.width {
+                        cg.fillEllipse(in: CGRect(x: x, y: y, width: 10, height: 10))
+                        x += step
+                    }
+                    y += step
+                }
+            }
+            // Soft top sheen
+            let sheen = CGGradient(colorsSpace: cs,
+                                   colors: [UIColor.white.withAlphaComponent(0.18).cgColor,
+                                            UIColor.white.withAlphaComponent(0).cgColor] as CFArray,
+                                   locations: [0, 1])!
+            cg.drawLinearGradient(sheen, start: .zero, end: CGPoint(x: 0, y: size.height*0.35), options: [])
+        }
+        cache[key] = img
+        return img
+    }
+}
+
 // MARK: - Springy button style
 
 /// Adds a satisfying scale + haptic on press to any button.
@@ -692,6 +974,7 @@ struct PairingTab: View {
     @EnvironmentObject var vm: AppViewModel
     @State private var showDeleteConfirm = false
     @State private var showCredits = false
+    @State private var showSettings = false
 
     var body: some View {
         NavigationStack {
@@ -877,6 +1160,7 @@ struct PairingTab: View {
             .navigationTitle("Pairing")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
+                SettingsGearToolbar(showSettings: $showSettings)
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
                         showCredits = true
@@ -897,6 +1181,9 @@ struct PairingTab: View {
             }
             .sheet(isPresented: $showCredits) {
                 CreditsSheet()
+            }
+            .sheet(isPresented: $showSettings) {
+                SettingsSheet().environmentObject(vm)
             }
             .onAppear {
                 vm.refreshNetworkStatus()
@@ -1001,8 +1288,10 @@ struct WalletCardView: View {
     let onDelete: () -> Void
     let onPickOriginal: () -> Void
     let onClearOriginal: () -> Void
+    let onPickPreset: (UIImage) -> Void
 
     @State private var copied = false
+    @State private var showPresets = false
 
     var body: some View {
         VStack(spacing: 12) {
@@ -1164,6 +1453,21 @@ struct WalletCardView: View {
                 }
                 .buttonStyle(.plain)
 
+                // Dropdown-toggle arrow for the preset picker.
+                Button {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
+                        showPresets.toggle()
+                    }
+                } label: {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 13, weight: .heavy))
+                        .foregroundStyle(showPresets ? Brand.cyan : .secondary)
+                        .rotationEffect(.degrees(showPresets ? 180 : 0))
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
                 Button(role: .destructive, action: onDelete) {
                     Image(systemName: "trash")
                         .font(.system(size: 14))
@@ -1174,16 +1478,75 @@ struct WalletCardView: View {
                 .buttonStyle(.plain)
             }
             .padding(.horizontal, 4)
+
+            // Preset picture dropdown — a grid of unlabeled thumbnails.
+            if showPresets {
+                presetDropdown
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .move(edge: .top)),
+                        removal: .opacity
+                    ))
+            }
         }
         .padding(14)
         .background(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color(uiColor: .secondarySystemGroupedBackground))
+                .fill(Color.white.opacity(0.05))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(card.isSelected ? Color.blue.opacity(0.35) : Color.clear, lineWidth: 1.5)
+                .strokeBorder(card.isSelected ? Brand.cyan.opacity(0.5) : Color.white.opacity(0.1), lineWidth: 1.2)
         )
+    }
+
+    /// The preset dropdown: a grid of card-ratio thumbnails. Tap one to flash
+    /// (well, queue to flash) that gradient as the card's new skin.
+    private var presetDropdown: some View {
+        let columns = [GridItem(.adaptive(minimum: 110, maximum: 180), spacing: 10)]
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Pick a card picture")
+                    .font(.system(size: 12, weight: .heavy, design: .rounded))
+                    .foregroundStyle(Brand.cyan)
+                Spacer()
+                Button {
+                    withAnimation(.spring(response: 0.3)) { showPresets = false }
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 16))
+                        .foregroundStyle(.white.opacity(0.5))
+                }
+                .buttonStyle(.plain)
+            }
+
+            LazyVGrid(columns: columns, spacing: 10) {
+                ForEach(CardPresets.all) { preset in
+                    let thumbSize = CGSize(width: 320, height: 202)
+                    let thumb = CardPresets.render(preset, size: thumbSize)
+                    Button {
+                        let full = CardPresets.render(preset, size: CGSize(width: 1536, height: 969))
+                        onPickPreset(full)
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
+                            showPresets = false
+                        }
+                    } label: {
+                        Image(uiImage: thumb)
+                            .resizable()
+                            .scaledToFill()
+                            .aspectRatio(1.586, contentMode: .fit)
+                            .frame(maxWidth: .infinity)
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
+                            )
+                            .shadow(color: .black.opacity(0.3), radius: 6, y: 2)
+                    }
+                    .buttonStyle(SpringPressButton())
+                }
+            }
+        }
+        .padding(.top, 6)
     }
 }
 
@@ -1214,6 +1577,7 @@ struct WalletCardsTab: View {
     @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var showCredits = false
     @State private var showRestoreCardsConfirm = false
+    @State private var showSettings = false
 
     var body: some View {
         NavigationStack {
@@ -1242,6 +1606,7 @@ struct WalletCardsTab: View {
             .navigationTitle("Cards")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
+                SettingsGearToolbar(showSettings: $showSettings)
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button {
                         vm.toggleCardScanning()
@@ -1314,6 +1679,9 @@ struct WalletCardsTab: View {
             }
             .sheet(isPresented: $showCredits) {
                 CreditsSheet()
+            }
+            .sheet(isPresented: $showSettings) {
+                SettingsSheet().environmentObject(vm)
             }
             .sheet(isPresented: $showAddSheet) {
                 AddCardSheet(hashText: $newHashText) {
@@ -1480,6 +1848,9 @@ struct WalletCardsTab: View {
                     },
                     onClearOriginal: {
                         vm.clearCardOriginalImage(for: card.id)
+                    },
+                    onPickPreset: { img in
+                        vm.setCardImage(for: card.id, image: img)
                     }
                 )
                 .id(card.id)
@@ -1490,32 +1861,18 @@ struct WalletCardsTab: View {
             }
 
             if !vm.cards.isEmpty {
-                VStack(spacing: 10) {
-                    Button {
-                        activePicker = .bulkOriginal
-                        showSourceDialog = true
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "bookmark.circle.fill")
-                            Text("Save Card Picture")
-                        }
-                        .brandPrimaryButton()
+                Button {
+                    showRestoreCardsConfirm = true
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "arrow.uturn.backward.circle")
+                        Text("Restore Stock Card Picture")
                     }
-                    .buttonStyle(SpringPressButton())
-
-                    Button {
-                        showRestoreCardsConfirm = true
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "arrow.uturn.backward.circle")
-                            Text("Restore Stock Card Picture")
-                        }
-                        .brandSecondaryButton(tint: .orange)
-                    }
-                    .buttonStyle(SpringPressButton())
-                    .disabled(!vm.canRestoreCardSkins)
-                    .opacity(vm.canRestoreCardSkins ? 1.0 : 0.5)
+                    .brandSecondaryButton(tint: .orange)
                 }
+                .buttonStyle(SpringPressButton())
+                .disabled(!vm.canRestoreCardSkins)
+                .opacity(vm.canRestoreCardSkins ? 1.0 : 0.5)
                 .padding(.top, 6)
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
@@ -1711,6 +2068,7 @@ struct AddCardSheet: View {
 struct PasscodeThemeTab: View {
     @EnvironmentObject var vm: AppViewModel
     @State private var showCredits = false
+    @State private var showSettings = false
 
     var body: some View {
         NavigationStack {
@@ -1759,6 +2117,7 @@ struct PasscodeThemeTab: View {
             .navigationTitle("Passcode")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
+                SettingsGearToolbar(showSettings: $showSettings)
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
                         showCredits = true
@@ -1770,6 +2129,9 @@ struct PasscodeThemeTab: View {
             }
             .sheet(isPresented: $showCredits) {
                 CreditsSheet()
+            }
+            .sheet(isPresented: $showSettings) {
+                SettingsSheet().environmentObject(vm)
             }
             .onAppear { vm.scanDocumentsDirectory() }
         }
