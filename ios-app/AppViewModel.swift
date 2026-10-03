@@ -122,6 +122,7 @@ final class AppViewModel: ObservableObject {
         scanDocumentsDirectory()
         posterBoardContainer = UserDefaults.standard.string(forKey: "aircard.posterboard_container") ?? ""
         loadSavedTendies()
+        loadCardPresets()
 
         // Hook Rust log output into our log array.
         AppViewModel.sharedLogSink = { [weak self] line in
@@ -488,6 +489,61 @@ final class AppViewModel: ObservableObject {
             try? FileManager.default.createDirectory(at: cardsDir, withIntermediateDirectories: true)
         }
         return cardsDir.appendingPathComponent("original_\(safeId).png")
+    }
+
+    // MARK: - User-managed card preset pictures (dropdown contents)
+
+    @Published var cardPresetFiles: [String] = []
+
+    nonisolated static func cardPresetsDirectory() -> URL {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let dir = docs.appendingPathComponent("CardPresets", isDirectory: true)
+        if !FileManager.default.fileExists(atPath: dir.path) {
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        return dir
+    }
+
+    nonisolated static func cardPresetURL(for fileName: String) -> URL {
+        cardPresetsDirectory().appendingPathComponent(fileName)
+    }
+
+    func loadCardPresets() {
+        let dir = Self.cardPresetsDirectory()
+        guard let items = try? FileManager.default.contentsOfDirectory(atPath: dir.path) else {
+            cardPresetFiles = []
+            return
+        }
+        cardPresetFiles = items.filter { name in
+            let lower = name.lowercased()
+            return lower.hasSuffix(".png") || lower.hasSuffix(".jpg") || lower.hasSuffix(".jpeg")
+        }.sorted()
+    }
+
+    /// Save a new picture to the dropdown pool. Writes a full-resolution PNG
+    /// so the saved copy flashes cleanly at the Wallet strip's full size.
+    func addCardPreset(image: UIImage) {
+        let dir = Self.cardPresetsDirectory()
+        let name = "preset_\(UUID().uuidString).png"
+        let url = dir.appendingPathComponent(name)
+        if let data = ImageEngine.prepareCardImage(from: image) {
+            try? data.write(to: url, options: .atomic)
+            loadCardPresets()
+        }
+    }
+
+    func removeCardPreset(fileName: String) {
+        let url = Self.cardPresetURL(for: fileName)
+        try? FileManager.default.removeItem(at: url)
+        loadCardPresets()
+    }
+
+    /// Load the full-size UIImage for a given preset file, used when a user
+    /// taps a preset tile in the dropdown.
+    func loadCardPresetImage(fileName: String) -> UIImage? {
+        let url = Self.cardPresetURL(for: fileName)
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return UIImage(data: data)
     }
 
     func loadSavedCards() {

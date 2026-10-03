@@ -205,7 +205,12 @@ struct SettingsSheet: View {
     @EnvironmentObject var vm: AppViewModel
     @Environment(\.dismiss) private var dismiss
 
-    @State private var activePickerCardId: String? = nil
+    private enum PickerTarget: Equatable {
+        case original(String)   // Original image for a card
+        case preset             // Add a new dropdown picture
+    }
+
+    @State private var pickerTarget: PickerTarget? = nil
     @State private var showPhotos = false
     @State private var showFiles  = false
     @State private var showSourceDialog = false
@@ -216,69 +221,16 @@ struct SettingsSheet: View {
             Form {
                 Section {
                     BrandHero(
-                        subtitle: "Store a copy of each card's original artwork so Restore can bring it back later.",
+                        subtitle: "Manage the dropdown picture pool and each card's saved original artwork.",
                         systemImage: "gearshape.2.fill"
                     )
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
                 }
 
-                Section("Original Card Pictures") {
-                    if vm.cards.isEmpty {
-                        Text("No cards yet — scan one in the Cards tab first.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        ForEach(vm.cards, id: \.id) { card in
-                            HStack(spacing: 12) {
-                                ZStack {
-                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                        .fill(Color.white.opacity(0.08))
-                                        .frame(width: 54, height: 34)
-                                    if let img = card.originalUIImage {
-                                        Image(uiImage: img)
-                                            .resizable()
-                                            .scaledToFill()
-                                            .frame(width: 54, height: 34)
-                                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                                    } else {
-                                        Image(systemName: "photo")
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(card.id.prefix(8) + "…" + card.id.suffix(6))
-                                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                                    Text(card.originalUIImage != nil ? "Original saved" : "No original saved")
-                                        .font(.caption2)
-                                        .foregroundStyle(card.originalUIImage != nil ? .green : .secondary)
-                                }
-                                Spacer()
-                                Button {
-                                    activePickerCardId = card.id
-                                    showSourceDialog = true
-                                } label: {
-                                    Text(card.originalUIImage == nil ? "Set" : "Change")
-                                        .font(.caption.bold())
-                                        .foregroundStyle(.white)
-                                        .padding(.horizontal, 10)
-                                        .padding(.vertical, 5)
-                                        .background(Brand.sweep, in: Capsule())
-                                }
-                                .buttonStyle(SpringPressButton())
-                                if card.originalUIImage != nil {
-                                    Button(role: .destructive) {
-                                        vm.clearCardOriginalImage(for: card.id)
-                                    } label: {
-                                        Image(systemName: "xmark.circle.fill")
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
-                        }
-                    }
-                }
+                dropdownPicturesSection
+
+                originalCardPicturesSection
             }
             .brandForm()
             .navigationTitle("Settings")
@@ -302,7 +254,7 @@ struct SettingsSheet: View {
                     Label("Choose from Files…", systemImage: "folder")
                 }
                 Button("Cancel", role: .cancel) {
-                    activePickerCardId = nil
+                    pickerTarget = nil
                 }
             }
             .photosPicker(
@@ -312,20 +264,20 @@ struct SettingsSheet: View {
                 matching: .images
             )
             .onChange(of: selectedPhotos) { _, items in
-                guard let item = items.first, let cid = activePickerCardId else {
-                    if items.isEmpty { activePickerCardId = nil }
+                guard let item = items.first, let target = pickerTarget else {
+                    if items.isEmpty { pickerTarget = nil }
                     return
                 }
-                let targetId = cid
+                let currentTarget = target
                 Task {
                     if let image = await item.loadUIImage(maxDimension: 2560) {
                         await MainActor.run {
-                            vm.setCardOriginalImage(for: targetId, image: image)
+                            apply(image: image, target: currentTarget)
                         }
                     }
                     await MainActor.run {
                         selectedPhotos = []
-                        activePickerCardId = nil
+                        pickerTarget = nil
                     }
                 }
             }
@@ -335,14 +287,155 @@ struct SettingsSheet: View {
                     UTType(filenameExtension: "webp") ?? .image,
                     UTType(filenameExtension: "tiff") ?? .image
                 ]) { url in
-                    guard let cid = activePickerCardId else { return }
+                    guard let target = pickerTarget else { return }
                     if let data = try? Data(contentsOf: url),
                        let image = ImageEngine.safeImageFromData(data, maxDimension: 2560) {
-                        vm.setCardOriginalImage(for: cid, image: image)
+                        apply(image: image, target: target)
                     }
-                    activePickerCardId = nil
+                    pickerTarget = nil
                 }
             }
+        }
+    }
+
+    private func apply(image: UIImage, target: PickerTarget) {
+        switch target {
+        case .original(let cid):
+            vm.setCardOriginalImage(for: cid, image: image)
+        case .preset:
+            vm.addCardPreset(image: image)
+        }
+    }
+
+    private var dropdownPicturesSection: some View {
+        Section {
+            if vm.cardPresetFiles.isEmpty {
+                Text("No pictures yet. Tap Add to pick photos — they'll show up as options in each card's dropdown.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else {
+                let columns = [GridItem(.adaptive(minimum: 90, maximum: 140), spacing: 8)]
+                LazyVGrid(columns: columns, spacing: 8) {
+                    ForEach(vm.cardPresetFiles, id: \.self) { file in
+                        let url = AppViewModel.cardPresetURL(for: file)
+                        let thumb = UIImage(contentsOfFile: url.path)
+                        ZStack(alignment: .topTrailing) {
+                            Group {
+                                if let thumb = thumb {
+                                    Image(uiImage: thumb)
+                                        .resizable()
+                                        .scaledToFill()
+                                } else {
+                                    Rectangle().fill(Color.white.opacity(0.08))
+                                }
+                            }
+                            .aspectRatio(1.586, contentMode: .fit)
+                            .frame(maxWidth: .infinity)
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .strokeBorder(Color.white.opacity(0.15), lineWidth: 1)
+                            )
+
+                            Button {
+                                vm.removeCardPreset(fileName: file)
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 18))
+                                    .foregroundStyle(.white)
+                                    .background(Circle().fill(Color.black.opacity(0.65)))
+                            }
+                            .buttonStyle(.plain)
+                            .padding(5)
+                        }
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+
+            Button {
+                pickerTarget = .preset
+                showSourceDialog = true
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "plus.circle.fill")
+                    Text("Add Picture")
+                }
+                .brandPrimaryButton()
+            }
+            .buttonStyle(SpringPressButton())
+            .listRowInsets(EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8))
+        } header: {
+            Text("Dropdown Pictures")
+                .font(.system(size: 12, weight: .heavy, design: .rounded))
+                .foregroundStyle(Brand.cyan)
+        } footer: {
+            Text("Pictures saved here appear in every card's chevron dropdown on the Cards tab.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var originalCardPicturesSection: some View {
+        Section {
+            if vm.cards.isEmpty {
+                Text("No cards yet — scan one in the Cards tab first.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(vm.cards, id: \.id) { card in
+                    HStack(spacing: 12) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(Color.white.opacity(0.08))
+                                .frame(width: 54, height: 34)
+                            if let img = card.originalUIImage {
+                                Image(uiImage: img)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: 54, height: 34)
+                                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            } else {
+                                Image(systemName: "photo")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(card.id.prefix(8) + "…" + card.id.suffix(6))
+                                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                            Text(card.originalUIImage != nil ? "Original saved" : "No original saved")
+                                .font(.caption2)
+                                .foregroundStyle(card.originalUIImage != nil ? .green : .secondary)
+                        }
+                        Spacer()
+                        Button {
+                            pickerTarget = .original(card.id)
+                            showSourceDialog = true
+                        } label: {
+                            Text(card.originalUIImage == nil ? "Set" : "Change")
+                                .font(.caption.bold())
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background(Brand.sweep, in: Capsule())
+                        }
+                        .buttonStyle(SpringPressButton())
+                        if card.originalUIImage != nil {
+                            Button(role: .destructive) {
+                                vm.clearCardOriginalImage(for: card.id)
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+        } header: {
+            Text("Original Card Pictures")
+                .font(.system(size: 12, weight: .heavy, design: .rounded))
+                .foregroundStyle(Brand.cyan)
         }
     }
 }
@@ -362,120 +455,6 @@ struct SettingsGearToolbar: ToolbarContent {
                     .background(Circle().fill(Color.white.opacity(0.08)))
             }
         }
-    }
-}
-
-// MARK: - Card picture presets
-
-/// Built-in abstract gradient card pictures. Shown in the per-card dropdown
-/// as a grid of unlabeled thumbnails so the user can pick one in a tap.
-enum CardPresets {
-    struct Preset: Identifiable, Equatable {
-        let id: Int
-        let colors: [UIColor]
-        let style: Style
-    }
-
-    enum Style { case diagonal, radial, stripes, waves, mesh }
-
-    static let all: [Preset] = [
-        Preset(id: 1,  colors: [UIColor(red: 0.49, green: 0.30, blue: 1.00, alpha: 1), UIColor(red: 0.12, green: 0.88, blue: 0.82, alpha: 1)], style: .diagonal),
-        Preset(id: 2,  colors: [UIColor(red: 1.00, green: 0.29, blue: 0.56, alpha: 1), UIColor(red: 1.00, green: 0.75, blue: 0.29, alpha: 1)], style: .diagonal),
-        Preset(id: 3,  colors: [UIColor(red: 0.00, green: 0.75, blue: 1.00, alpha: 1), UIColor(red: 0.72, green: 1.00, blue: 0.97, alpha: 1)], style: .radial),
-        Preset(id: 4,  colors: [UIColor(red: 0.05, green: 0.05, blue: 0.15, alpha: 1), UIColor(red: 0.00, green: 1.00, blue: 0.78, alpha: 1)], style: .radial),
-        Preset(id: 5,  colors: [UIColor(red: 1.00, green: 0.33, blue: 0.33, alpha: 1), UIColor(red: 0.52, green: 0.00, blue: 0.80, alpha: 1)], style: .diagonal),
-        Preset(id: 6,  colors: [UIColor(red: 0.17, green: 0.24, blue: 0.56, alpha: 1), UIColor(red: 0.98, green: 0.57, blue: 0.14, alpha: 1)], style: .stripes),
-        Preset(id: 7,  colors: [UIColor(red: 0.05, green: 0.49, blue: 0.76, alpha: 1), UIColor(red: 0.00, green: 0.18, blue: 0.35, alpha: 1)], style: .waves),
-        Preset(id: 8,  colors: [UIColor(red: 0.17, green: 0.80, blue: 0.44, alpha: 1), UIColor(red: 0.00, green: 0.28, blue: 0.17, alpha: 1)], style: .mesh),
-        Preset(id: 9,  colors: [UIColor(red: 0.95, green: 0.95, blue: 0.95, alpha: 1), UIColor(red: 0.75, green: 0.75, blue: 0.80, alpha: 1)], style: .diagonal),
-        Preset(id: 10, colors: [UIColor(red: 0.08, green: 0.08, blue: 0.10, alpha: 1), UIColor(red: 0.42, green: 0.42, blue: 0.48, alpha: 1)], style: .diagonal),
-        Preset(id: 11, colors: [UIColor(red: 0.86, green: 0.07, blue: 0.24, alpha: 1), UIColor(red: 0.20, green: 0.02, blue: 0.05, alpha: 1)], style: .radial),
-        Preset(id: 12, colors: [UIColor(red: 0.98, green: 0.74, blue: 0.02, alpha: 1), UIColor(red: 0.58, green: 0.35, blue: 0.00, alpha: 1)], style: .diagonal),
-    ]
-
-    /// Render a preset at the given size. Cached in-memory per (id, size) so
-    /// repeated tile renders don't thrash the CPU.
-    private static var cache: [String: UIImage] = [:]
-
-    static func render(_ preset: Preset, size: CGSize) -> UIImage {
-        let key = "\(preset.id)@\(Int(size.width))x\(Int(size.height))"
-        if let cached = cache[key] { return cached }
-
-        let fmt = UIGraphicsImageRendererFormat()
-        fmt.scale = 1
-        fmt.opaque = true
-        let r = UIGraphicsImageRenderer(size: size, format: fmt)
-        let img = r.image { ctx in
-            let rect = CGRect(origin: .zero, size: size)
-            let cg = ctx.cgContext
-            let cs = CGColorSpaceCreateDeviceRGB()
-            let cs2 = preset.colors.map { $0.cgColor }
-            switch preset.style {
-            case .diagonal:
-                let g = CGGradient(colorsSpace: cs, colors: cs2 as CFArray, locations: [0, 1])!
-                cg.drawLinearGradient(g, start: .zero, end: CGPoint(x: size.width, y: size.height), options: [])
-            case .radial:
-                let g = CGGradient(colorsSpace: cs, colors: cs2 as CFArray, locations: [0, 1])!
-                let c = CGPoint(x: size.width * 0.35, y: size.height * 0.3)
-                cg.drawRadialGradient(g, startCenter: c, startRadius: 0,
-                                      endCenter: CGPoint(x: size.width/2, y: size.height/2),
-                                      endRadius: max(size.width, size.height), options: [])
-            case .stripes:
-                let g = CGGradient(colorsSpace: cs, colors: cs2 as CFArray, locations: [0, 1])!
-                cg.drawLinearGradient(g, start: .zero, end: CGPoint(x: size.width, y: 0), options: [])
-                cg.setFillColor(UIColor.white.withAlphaComponent(0.08).cgColor)
-                var y: CGFloat = -size.height
-                while y < size.height {
-                    cg.saveGState()
-                    cg.translateBy(x: size.width/2, y: size.height/2)
-                    cg.rotate(by: -.pi / 6)
-                    cg.translateBy(x: -size.width/2, y: -size.height/2)
-                    cg.fill(CGRect(x: 0, y: y, width: size.width, height: 24))
-                    cg.restoreGState()
-                    y += 60
-                }
-            case .waves:
-                let g = CGGradient(colorsSpace: cs, colors: cs2 as CFArray, locations: [0, 1])!
-                cg.drawLinearGradient(g, start: .zero, end: CGPoint(x: 0, y: size.height), options: [])
-                cg.setStrokeColor(UIColor.white.withAlphaComponent(0.14).cgColor)
-                cg.setLineWidth(3)
-                for i in 0..<6 {
-                    let path = CGMutablePath()
-                    let y = size.height * CGFloat(i) / 5
-                    path.move(to: CGPoint(x: 0, y: y))
-                    var x: CGFloat = 0
-                    while x < size.width {
-                        path.addQuadCurve(to: CGPoint(x: x+80, y: y),
-                                          control: CGPoint(x: x+40, y: y - 30))
-                        x += 80
-                    }
-                    cg.addPath(path)
-                    cg.strokePath()
-                }
-            case .mesh:
-                let g = CGGradient(colorsSpace: cs, colors: cs2 as CFArray, locations: [0, 1])!
-                cg.drawLinearGradient(g, start: .zero, end: CGPoint(x: size.width, y: size.height), options: [])
-                cg.setFillColor(UIColor.white.withAlphaComponent(0.06).cgColor)
-                let step: CGFloat = 36
-                var y: CGFloat = 0
-                while y < size.height {
-                    var x: CGFloat = (Int(y / step) % 2 == 0) ? 0 : step/2
-                    while x < size.width {
-                        cg.fillEllipse(in: CGRect(x: x, y: y, width: 10, height: 10))
-                        x += step
-                    }
-                    y += step
-                }
-            }
-            // Soft top sheen
-            let sheen = CGGradient(colorsSpace: cs,
-                                   colors: [UIColor.white.withAlphaComponent(0.18).cgColor,
-                                            UIColor.white.withAlphaComponent(0).cgColor] as CFArray,
-                                   locations: [0, 1])!
-            cg.drawLinearGradient(sheen, start: .zero, end: CGPoint(x: 0, y: size.height*0.35), options: [])
-        }
-        cache[key] = img
-        return img
     }
 }
 
@@ -1289,6 +1268,7 @@ struct WalletCardView: View {
     let onPickOriginal: () -> Void
     let onClearOriginal: () -> Void
     let onPickPreset: (UIImage) -> Void
+    let presetFiles: [String]
 
     @State private var copied = false
     @State private var showPresets = false
@@ -1503,8 +1483,9 @@ struct WalletCardView: View {
         .padding(.horizontal, 4)
     }
 
-    /// The preset dropdown: a grid of card-ratio thumbnails. Tap one to flash
-    /// (well, queue to flash) that gradient as the card's new skin.
+    /// The preset dropdown: a grid of card-ratio thumbnails sourced from the
+    /// user's own pool (managed in Settings). Tap one to apply, tap the chevron
+    /// or ✕ to close.
     private var presetDropdown: some View {
         let columns = [GridItem(.adaptive(minimum: 110, maximum: 180), spacing: 10)]
         return VStack(alignment: .leading, spacing: 10) {
@@ -1523,20 +1504,44 @@ struct WalletCardView: View {
                 .buttonStyle(.plain)
             }
 
-            LazyVGrid(columns: columns, spacing: 10) {
-                ForEach(CardPresets.all) { preset in
-                    let thumbSize = CGSize(width: 320, height: 202)
-                    let thumb = CardPresets.render(preset, size: thumbSize)
-                    Button {
-                        let full = CardPresets.render(preset, size: CGSize(width: 1536, height: 969))
-                        onPickPreset(full)
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
-                            showPresets = false
-                        }
-                    } label: {
-                        Image(uiImage: thumb)
-                            .resizable()
-                            .scaledToFill()
+            if presetFiles.isEmpty {
+                VStack(spacing: 6) {
+                    Image(systemName: "photo.badge.plus")
+                        .font(.system(size: 28))
+                        .foregroundStyle(Brand.cyan.opacity(0.6))
+                    Text("No pictures yet")
+                        .font(.system(size: 13, weight: .heavy, design: .rounded))
+                        .foregroundStyle(.white)
+                    Text("Add some in Settings → Dropdown Pictures.")
+                        .font(.system(size: 11, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.6))
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+            } else {
+                LazyVGrid(columns: columns, spacing: 10) {
+                    ForEach(presetFiles, id: \.self) { file in
+                        let url = AppViewModel.cardPresetURL(for: file)
+                        let thumb = UIImage(contentsOfFile: url.path)
+                        Button {
+                            if let data = try? Data(contentsOf: url),
+                               let img = UIImage(data: data) {
+                                onPickPreset(img)
+                            }
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
+                                showPresets = false
+                            }
+                        } label: {
+                            Group {
+                                if let thumb = thumb {
+                                    Image(uiImage: thumb)
+                                        .resizable()
+                                        .scaledToFill()
+                                } else {
+                                    Rectangle().fill(Color.white.opacity(0.1))
+                                }
+                            }
                             .aspectRatio(1.586, contentMode: .fit)
                             .frame(maxWidth: .infinity)
                             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -1545,8 +1550,9 @@ struct WalletCardView: View {
                                     .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
                             )
                             .shadow(color: .black.opacity(0.3), radius: 6, y: 2)
+                        }
+                        .buttonStyle(SpringPressButton())
                     }
-                    .buttonStyle(SpringPressButton())
                 }
             }
         }
@@ -1855,7 +1861,8 @@ struct WalletCardsTab: View {
                     },
                     onPickPreset: { img in
                         vm.setCardImage(for: card.id, image: img)
-                    }
+                    },
+                    presetFiles: vm.cardPresetFiles
                 )
                 .id(card.id)
                 .transition(.asymmetric(
