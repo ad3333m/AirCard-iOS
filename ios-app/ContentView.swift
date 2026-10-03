@@ -1382,8 +1382,31 @@ struct WalletCardView: View {
             }
             .aspectRatio(1.586, contentMode: .fit)
 
-            // Card Controls & Meta Bar
-            HStack(spacing: 8) {
+            // Card Controls & Meta Bar (extracted to help the type-checker)
+            metaBar
+
+            // Preset picture dropdown — a grid of unlabeled thumbnails.
+            if showPresets {
+                presetDropdown
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .move(edge: .top)),
+                        removal: .opacity
+                    ))
+            }
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(Color.white.opacity(0.05))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .strokeBorder(card.isSelected ? Brand.cyan.opacity(0.5) : Color.white.opacity(0.1), lineWidth: 1.2)
+        )
+    }
+
+    private var metaBar: some View {
+        HStack(spacing: 8) {
                 Toggle("", isOn: Binding(
                     get: { card.isSelected },
                     set: { onToggleSelected($0) }
@@ -1475,28 +1498,9 @@ struct WalletCardView: View {
                         .frame(width: 32, height: 32)
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, 4)
-
-            // Preset picture dropdown — a grid of unlabeled thumbnails.
-            if showPresets {
-                presetDropdown
-                    .transition(.asymmetric(
-                        insertion: .opacity.combined(with: .move(edge: .top)),
-                        removal: .opacity
-                    ))
-            }
+            .buttonStyle(.plain)
         }
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color.white.opacity(0.05))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .strokeBorder(card.isSelected ? Brand.cyan.opacity(0.5) : Color.white.opacity(0.1), lineWidth: 1.2)
-        )
+        .padding(.horizontal, 4)
     }
 
     /// The preset dropdown: a grid of card-ratio thumbnails. Tap one to flash
