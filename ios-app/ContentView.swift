@@ -1171,16 +1171,28 @@ struct VPNStatusRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 12) {
-                Image(systemName: "checkmark.shield.fill")
+                Image(systemName: vm.vpnUp ? "checkmark.shield.fill" : "exclamationmark.triangle.fill")
                     .font(.title3)
-                    .foregroundStyle(.green)
+                    .foregroundStyle(vm.vpnUp ? .green : .orange)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Loopback Ready")
+                    Text(vm.vpnUp ? "Loopback Tunnel Up" : "Loopback Tunnel Required")
                         .font(.subheadline.bold())
-                    Text("Exploit uses direct 127.0.0.1 — no VPN required.")
+                    Text(vm.vpnUp
+                         ? "RSD reachable — flashes will connect."
+                         : "The exploit talks to RSD over a local tunnel. Run LocalDevVPN (or StikDebug / StosVPN) before flashing.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
+            }
+
+            if !vm.vpnUp {
+                Link("Launch LocalDevVPN",
+                     destination: URL(string: "localdevvpn://")!)
+                    .font(.caption.bold())
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color.orange.opacity(0.15), in: Capsule())
             }
 
             HStack(spacing: 8) {

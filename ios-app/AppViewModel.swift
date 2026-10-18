@@ -302,10 +302,8 @@ final class AppViewModel: ObservableObject {
 
     func refreshNetworkStatus() {
         let ip = deviceIP
-        let (_, wifi, detail) = NetworkStatus.summarize(deviceIP: ip)
-        // VPN requirement dropped — exploit falls back to 127.0.0.1 loopback.
-        // ponytail: forced true to silence UI nag; detection still runs for `detail`.
-        vpnUp = true
+        let (vpn, wifi, detail) = NetworkStatus.summarize(deviceIP: ip)
+        vpnUp = vpn
         wifiUp = wifi
         networkDetail = detail
     }
