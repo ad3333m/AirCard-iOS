@@ -16,35 +16,35 @@ extension UIFont {
 
 // MARK: - Brand palette
 
-/// Brand colors mirror the AirTweak app icon: dark navy → cyan.
+/// Skinr monochrome palette: pure black & white with grey steps.
 enum Brand {
-    static let deepNavy = Color(red: 0x0B/255.0, green: 0x1A/255.0, blue: 0x36/255.0)
-    static let navy     = Color(red: 0x21/255.0, green: 0x4B/255.0, blue: 0x8E/255.0)
-    static let blue     = Color(red: 0x2E/255.0, green: 0xA8/255.0, blue: 0xFF/255.0)
-    static let cyan     = Color(red: 0x66/255.0, green: 0xD5/255.0, blue: 0xFF/255.0)
-    static let ice      = Color(red: 0xB8/255.0, green: 0xF0/255.0, blue: 0xFF/255.0)
+    static let ink      = Color(red: 0.04, green: 0.04, blue: 0.05)   // near-black bg
+    static let charcoal = Color(red: 0.11, green: 0.11, blue: 0.13)
+    static let smoke    = Color(red: 0.35, green: 0.35, blue: 0.38)
+    static let silver   = Color(red: 0.75, green: 0.75, blue: 0.78)
+    static let bone     = Color(red: 0.96, green: 0.96, blue: 0.97)
 
-    // Used to be `violet` — keep the alias so older references still compile.
-    static let violet = navy
+    // Aliases so older code still compiles.
+    static let violet  = charcoal
+    static let navy    = charcoal
+    static let plum    = charcoal
+    static let magenta = silver
+    static let amber   = bone
+    static let blue    = silver
+    static let cyan    = bone
 
-    /// Navy → cyan-blue diagonal sweep for buttons. Uses light-enough stops
-    /// on both ends so buttons stay visible over the dark app background.
+    /// Primary action: white → silver (looks tactile over black bg).
     static let sweep = LinearGradient(
-        colors: [
-            Color(red: 0x2A/255.0, green: 0x63/255.0, blue: 0xE0/255.0),
-            blue,
-            cyan
-        ],
+        colors: [bone, silver],
         startPoint: .leading,
         endPoint: .trailing
     )
 
-    /// Softer sweep for section backgrounds.
+    /// Softer section-background sweep.
     static let softSweep = LinearGradient(
         colors: [
-            navy.opacity(0.22),
-            blue.opacity(0.16),
-            cyan.opacity(0.12)
+            Color.white.opacity(0.08),
+            Color.white.opacity(0.04)
         ],
         startPoint: .topLeading,
         endPoint: .bottomTrailing
@@ -58,12 +58,11 @@ struct BrandPrimaryButton: ViewModifier {
             ? AnyShapeStyle(Brand.sweep)
             : AnyShapeStyle(Color.gray.opacity(0.35))
         return content
-            .font(.system(size: 15, weight: .semibold, design: .rounded))
-            .foregroundStyle(.white)
+            .font(.system(size: 15, weight: .heavy, design: .rounded))
+            .foregroundStyle(enabled ? Brand.ink : Color.white)
             .frame(maxWidth: .infinity, minHeight: 48)
             .background(bg, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .shadow(color: enabled ? Brand.blue.opacity(0.35) : .clear,
-                    radius: 14, x: 0, y: 6)
+            .shadow(color: Color.white.opacity(enabled ? 0.15 : 0), radius: 10, y: 4)
     }
 }
 
@@ -414,7 +413,7 @@ struct SettingsSheet: View {
                         } label: {
                             Text(card.originalUIImage == nil ? "Set" : "Change")
                                 .font(.caption.bold())
-                                .foregroundStyle(.white)
+                                .foregroundStyle(Brand.ink)
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 5)
                                 .background(Brand.sweep, in: Capsule())
@@ -823,10 +822,10 @@ struct ContentView: View {
         let tabAppearance = UITabBarAppearance()
         tabAppearance.configureWithTransparentBackground()
         tabAppearance.backgroundEffect = UIBlurEffect(style: .systemUltraThinMaterialDark)
-        tabAppearance.backgroundColor = UIColor(red: 0x0B/255.0, green: 0x1A/255.0, blue: 0x36/255.0, alpha: 0.85)
+        tabAppearance.backgroundColor = UIColor(red: 0.04, green: 0.04, blue: 0.05, alpha: 0.90)
 
-        let accent = UIColor(red: 0x66/255.0, green: 0xD5/255.0, blue: 0xFF/255.0, alpha: 1)
-        let inactive = UIColor(red: 0xB8/255.0, green: 0xC5/255.0, blue: 0xE0/255.0, alpha: 0.55)
+        let accent = UIColor.white
+        let inactive = UIColor(white: 0.55, alpha: 1)
         tabAppearance.stackedLayoutAppearance.selected.iconColor = accent
         tabAppearance.stackedLayoutAppearance.selected.titleTextAttributes = [.foregroundColor: accent]
         tabAppearance.stackedLayoutAppearance.normal.iconColor = inactive
@@ -856,21 +855,17 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-            // Global app background: deep navy → charcoal blue with an aura.
+            // Global app background: near-black with a very subtle charcoal fade.
             LinearGradient(
-                colors: [
-                    Color(red: 0x08/255.0, green: 0x0F/255.0, blue: 0x24/255.0),
-                    Color(red: 0x0F/255.0, green: 0x1B/255.0, blue: 0x36/255.0),
-                    Color(red: 0x14/255.0, green: 0x1F/255.0, blue: 0x40/255.0),
-                ],
+                colors: [Brand.ink, Brand.charcoal, Brand.ink],
                 startPoint: .top, endPoint: .bottom
             )
             .ignoresSafeArea()
 
-            // Drifting aurora blobs
+            // Drifting monochrome smoke
             GeometryReader { geo in
                 Circle()
-                    .fill(Brand.blue.opacity(0.28))
+                    .fill(Color.white.opacity(0.055))
                     .frame(width: geo.size.width * 0.9)
                     .blur(radius: 90)
                     .offset(
@@ -878,20 +873,12 @@ struct ContentView: View {
                         y: -geo.size.height * 0.10 - auroraShift * 24
                     )
                 Circle()
-                    .fill(Brand.cyan.opacity(0.20))
+                    .fill(Color.white.opacity(0.04))
                     .frame(width: geo.size.width * 0.75)
                     .blur(radius: 80)
                     .offset(
                         x: geo.size.width * 0.35 - auroraShift * 30,
                         y: geo.size.height * 0.45 + auroraShift * 20
-                    )
-                Circle()
-                    .fill(Color(red: 0x7C/255.0, green: 0x4D/255.0, blue: 0xFF/255.0).opacity(0.12))
-                    .frame(width: geo.size.width * 0.5)
-                    .blur(radius: 70)
-                    .offset(
-                        x: -geo.size.width * 0.10 + auroraShift * 50,
-                        y: geo.size.height * 0.10 + auroraShift * 45
                     )
             }
             .ignoresSafeArea()
@@ -1184,41 +1171,16 @@ struct VPNStatusRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 12) {
-                Image(systemName: vm.vpnUp
-                      ? "checkmark.shield.fill"
-                      : "exclamationmark.triangle.fill")
+                Image(systemName: "checkmark.shield.fill")
                     .font(.title3)
-                    .foregroundStyle(vm.vpnUp ? .green : .orange)
+                    .foregroundStyle(.green)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(vm.vpnUp ? "Loopback VPN Active" : "Loopback VPN Not Detected")
+                    Text("Loopback Ready")
                         .font(.subheadline.bold())
-                    Text(vm.vpnUp
-                         ? "RSD tunnel ready — exploit will connect."
-                         : "Connect LocalDevVPN before running flashes.")
+                    Text("Exploit uses direct 127.0.0.1 — no VPN required.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-            }
-
-            if !vm.vpnUp {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Setup LocalDevVPN:")
-                        .font(.caption.bold())
-                    ForEach([
-                        "1. Open LocalDevVPN app and tap Connect.",
-                        "2. Return to AirCard-iOS — status indicator turns green."
-                    ], id: \.self) { step in
-                        Text(step)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Link("Launch LocalDevVPN",
-                         destination: URL(string: "localdevvpn://")!)
-                        .font(.caption.bold())
-                }
-                .padding(10)
-                .background(Color.orange.opacity(0.08))
-                .clipShape(RoundedRectangle(cornerRadius: 10))
             }
 
             HStack(spacing: 8) {
@@ -1924,7 +1886,7 @@ struct WalletCardsTab: View {
                         .font(.system(size: 13, weight: .heavy, design: .rounded))
                 }
             }
-            .foregroundStyle(.white)
+            .foregroundStyle(Brand.ink)
             .padding(.horizontal, 12)
             .frame(minHeight: 30)
             .background(flashBackground, in: Capsule())
@@ -2009,7 +1971,7 @@ struct WalletCardsTab: View {
                         Text(vm.isScanningCards ? "Stop Scan" : "Scan Cards")
                     }
                     .font(.system(size: 15, weight: .heavy, design: .rounded))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Brand.ink)
                     .frame(maxWidth: .infinity, minHeight: 48)
                     .background(scanButtonBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .shadow(color: (vm.isScanningCards ? Color.red : Brand.blue).opacity(0.35), radius: 12, y: 5)
@@ -2178,7 +2140,7 @@ struct ApplyThemeSection: View {
                         } label: {
                             Text("Load")
                                 .font(.system(size: 12, weight: .heavy, design: .rounded))
-                                .foregroundStyle(.white)
+                                .foregroundStyle(Brand.ink)
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 6)
                                 .background(Brand.sweep, in: Capsule())

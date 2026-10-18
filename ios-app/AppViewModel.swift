@@ -302,8 +302,10 @@ final class AppViewModel: ObservableObject {
 
     func refreshNetworkStatus() {
         let ip = deviceIP
-        let (vpn, wifi, detail) = NetworkStatus.summarize(deviceIP: ip)
-        vpnUp = vpn
+        let (_, wifi, detail) = NetworkStatus.summarize(deviceIP: ip)
+        // VPN requirement dropped — exploit falls back to 127.0.0.1 loopback.
+        // ponytail: forced true to silence UI nag; detection still runs for `detail`.
+        vpnUp = true
         wifiUp = wifi
         networkDetail = detail
     }
@@ -741,10 +743,6 @@ final class AppViewModel: ObservableObject {
         cardFlashLog.removeAll()
         errorMessage = nil
 
-        if !vpnUp {
-            cardFlashLog.append("⚠️ Notice: Loopback VPN not detected, attempting direct loopback (127.0.0.1)...")
-        }
-
         let pairingPath = PairingController.pairingFilePath()
 
         // Fully-transparent PNGs at the EXACT dimensions the flash writes.
@@ -974,10 +972,6 @@ final class AppViewModel: ObservableObject {
         cardFlashProgress = 0
         cardFlashLog.removeAll()
         errorMessage = nil
-
-        if !vpnUp {
-            cardFlashLog.append("⚠️ Notice: Loopback VPN not detected, attempting direct loopback (127.0.0.1)...")
-        }
 
         let pairingPath = PairingController.pairingFilePath()
 
@@ -1665,10 +1659,6 @@ final class AppViewModel: ObservableObject {
         passthmFlashLog.removeAll()
         errorMessage = nil
 
-        if !vpnUp {
-            passthmFlashLog.append("⚠️ Notice: Loopback VPN not detected, attempting direct loopback (127.0.0.1)...")
-        }
-
         let pairingPath = PairingController.pairingFilePath()
         let targetVer = targetTelephonyVersion
         let targetLang = passcodeLanguageTarget
@@ -1952,7 +1942,7 @@ final class AppViewModel: ObservableObject {
         } catch {
             if !silent {
                 await MainActor.run {
-                    self.errorMessage = "Auto-detect failed: \(error.localizedDescription)\nEnsure LocalDevVPN is connected and device is unlocked."
+                    self.errorMessage = "Auto-detect failed: \(error.localizedDescription)\nEnsure iPhone is unlocked and paired."
                 }
             }
         }
@@ -1978,7 +1968,7 @@ final class AppViewModel: ObservableObject {
                 self.posterBoardContainer = container
                 UserDefaults.standard.set(container, forKey: "aircard.posterboard_container")
             } catch {
-                errorMessage = "PosterBoard container could not be found automatically. Ensure LocalDevVPN is connected and iPhone is unlocked."
+                errorMessage = "PosterBoard container could not be found automatically. Ensure iPhone is unlocked and paired."
                 return
             }
         }
