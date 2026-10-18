@@ -1,12 +1,12 @@
 name: Build unsigned IPA
 
-# Builds an unsigned AirTweak .ipa on a macOS runner and uploads it as an
-# artifact. Install it with Sideloadly / AltStore (they re-sign with your
-# Apple ID). Runs on every push, and on demand from the Actions tab.
 on:
   push:
     branches: [ main, airtweak ]
   workflow_dispatch:
+
+permissions:
+  contents: write   # needed to publish the "latest" GitHub Release
 
 jobs:
   build:
@@ -17,17 +17,91 @@ jobs:
       - name: Select Xcode 16
         run: sudo xcode-select -s /Applications/Xcode_16.4.app || sudo xcode-select -s /Applications/Xcode_16.2.app
 
-      - name: Show toolchain
-        run: xcodebuild -version && xcrun --sdk iphoneos --show-sdk-version
-
       - name: Build unsigned IPA
         run: |
           chmod +x build-ipa.sh
           ./build-ipa.sh Release
+          mv build/*.ipa build/Skinr.ipa
 
-      - name: Upload IPA
+      - name: Generate AltStore source.json
+        env:
+          REPO: ${{ github.repository }}
+        run: |
+          set -e
+          IPA=build/Skinr.ipa
+          SIZE=$(stat -f%z "$IPA")
+          # Pull version from the baked-in Info.plist to keep source in sync.
+          mkdir -p build/unpack && (cd build/unpack && unzip -q ../Skinr.ipa)
+          PLIST=build/unpack/Payload/*.app/Info.plist
+          VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" $PLIST)
+          BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" $PLIST)
+          DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          DOWNLOAD="https://github.com/${REPO}/releases/latest/download/Skinr.ipa"
+          ICON="https://raw.githubusercontent.com/${REPO}/airtweak/ios-app/Assets.xcassets/AppIcon.appiconset/AppIcon.png"
+          cat > build/source.json <<JSON
+          {
+            "name": "Skinr",
+            "subtitle": "Wallet card skins + passcode themes",
+            "description": "Skinr applies custom card skins, passcode themes, and Home Screen wallpapers on-device via the AirTraffic lockdown exploit.",
+            "iconURL": "${ICON}",
+            "website": "https://github.com/${REPO}",
+            "tintColor": "FFFFFF",
+            "featuredApps": ["${BUNDLE_ID}"],
+            "apps": [
+              {
+                "name": "Skinr",
+                "bundleIdentifier": "${BUNDLE_ID}",
+                "developerName": "ad3333m",
+                "subtitle": "Wallet card skins + passcode themes.",
+                "localizedDescription": "Skinr applies custom card skins, passcode themes, and Home Screen wallpapers on-device via the AirTraffic lockdown exploit. Requires a loopback tunnel (LocalDevVPN or similar).",
+                "iconURL": "${ICON}",
+                "tintColor": "FFFFFF",
+                "category": "utilities",
+                "screenshotURLs": [],
+                "versions": [
+                  {
+                    "version": "${VERSION}",
+                    "buildVersion": "${VERSION}",
+                    "date": "${DATE}",
+                    "size": ${SIZE},
+                    "downloadURL": "${DOWNLOAD}",
+                    "localizedDescription": "Automated build from commit ${GITHUB_SHA:0:7}."
+                  }
+                ],
+                "appPermissions": {
+                  "entitlements": [],
+                  "privacy": {
+                    "NSPhotoLibraryUsageDescription": "Pick card skins and passcode theme images.",
+                    "NSLocalNetworkUsageDescription": "Advertise/connect to the on-device pairing + lockdown tunnel."
+                  }
+                }
+              }
+            ],
+            "news": []
+          }
+          JSON
+          cp build/source.json build/altstore.json   # some clients expect this name
+          rm -rf build/unpack
+
+      - name: Upload artifact (unsigned IPA + source.json)
         uses: actions/upload-artifact@v4
         with:
           name: AirTweak-unsigned-ipa
-          path: build/*.ipa
+          path: |
+            build/Skinr.ipa
+            build/source.json
           if-no-files-found: error
+
+      - name: Publish 'latest' GitHub Release
+        if: github.ref == 'refs/heads/airtweak' || github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Skinr latest
+          body: Rolling unsigned Skinr build + AltStore source.
+          files: |
+            build/Skinr.ipa
+            build/source.json
+            build/altstore.json
+          prerelease: false
+          make_latest: "true"
