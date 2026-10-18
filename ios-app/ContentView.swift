@@ -1941,7 +1941,7 @@ struct WalletCardsTab: View {
                     .shadow(color: Brand.violet.opacity(0.35), radius: 18, y: 6)
                 Image(systemName: "creditcard.viewfinder")
                     .font(.system(size: 40, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Brand.ink)
             }
 
             Text("No Cards Detected Yet")
@@ -2140,7 +2140,7 @@ struct ApplyThemeSection: View {
                                 .frame(width: 34, height: 34)
                             Image(systemName: "paintpalette.fill")
                                 .font(.system(size: 15, weight: .bold))
-                                .foregroundStyle(.white)
+                                .foregroundStyle(Brand.ink)
                         }
                         Text(file)
                             .font(.system(size: 13, weight: .medium, design: .monospaced))
