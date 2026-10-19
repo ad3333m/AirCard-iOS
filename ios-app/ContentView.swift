@@ -2973,11 +2973,13 @@ struct KeypadPreviewView: View {
                     Text(btn.digit)
                         .font(.system(size: 26 * scale, weight: .light))
                         .foregroundStyle(.white.opacity(0.95))
+                        .shadow(color: .black.opacity(0.7), radius: 2)
                     if !btn.letters.isEmpty {
                         Text(btn.letters)
                             .font(.system(size: 8.5 * scale, weight: .semibold))
                             .tracking(0.8 * scale)
                             .foregroundStyle(.white.opacity(0.85))
+                            .shadow(color: .black.opacity(0.6), radius: 2)
                     }
                 }
             } else if let img = keys[btn.digit] {
@@ -3009,11 +3011,13 @@ struct KeypadPreviewView: View {
                     Text(btn.digit)
                         .font(.system(size: 26 * scale, weight: .light))
                         .foregroundStyle(.white)
+                        .shadow(color: .black.opacity(0.7), radius: 2)
                     if !btn.letters.isEmpty {
                         Text(btn.letters)
                             .font(.system(size: 8.5 * scale, weight: .semibold))
                             .tracking(0.8 * scale)
                             .foregroundStyle(.white.opacity(0.85))
+                            .shadow(color: .black.opacity(0.6), radius: 2)
                     }
                 }
             }
