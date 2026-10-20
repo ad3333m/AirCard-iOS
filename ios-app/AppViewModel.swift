@@ -291,11 +291,26 @@ final class AppViewModel: ObservableObject {
     }
 
     func deletePairingFile() {
-        let path = PairingController.pairingFilePath()
-        try? FileManager.default.removeItem(atPath: path)
+        // Remove every pairing-ish plist in Documents — importPairingFile
+        // mirrors to aircard_pairing.plist + airlift_pairing.plist + the
+        // original filename, so a single-path delete leaves one behind that
+        // the scanner immediately re-adopts on refresh.
+        let fm = FileManager.default
+        let docs = fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        try? fm.removeItem(atPath: PairingController.pairingFilePath())
+        if let items = try? fm.contentsOfDirectory(atPath: docs.path) {
+            for name in items {
+                let lower = name.lowercased()
+                if lower.hasSuffix(".plist")
+                    || lower.hasSuffix(".mobiledevicepairing")
+                    || lower.hasSuffix(".mobilepair") {
+                    try? fm.removeItem(at: docs.appendingPathComponent(name))
+                }
+            }
+        }
         PairingController.customPairingFilePath = nil
         refreshPairingFile()
-        pairingStatus = "Pairing file deleted"
+        pairingStatus = "Pairing files deleted"
     }
 
     // MARK: - Network
